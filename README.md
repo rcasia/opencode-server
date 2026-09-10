@@ -4,7 +4,7 @@
 
 Terraform infra for an agentic coding EC2 server on AWS (`eu-west-1`, `t3.micro` default).
 
-Provisions: VPC + public subnet + IGW, security group (SSH + opencode 4096), IAM role for SSM, EC2 (AL2023) with Docker + Node 22 + opencode via user-data, Elastic IP.
+Provisions: VPC + public subnet + IGW, security group (SSH on your /32, Caddy 80/443), IAM role for SSM, EC2 (AL2023) with Docker + Node 22 + opencode web (systemd, localhost-only) behind Caddy with automatic Let's Encrypt TLS, Elastic IP.
 
 ## Layout
 
@@ -107,6 +107,31 @@ Connect:
 aws ssm start-session --region eu-west-1 --target $(terraform output -raw instance_id)
 # or SSH if ssh_public_key set
 ```
+
+## opencode web access (phone-friendly HTTPS)
+
+Design rationale lives in [`docs/adr/0001-caddy-tls-proxy.md`](docs/adr/0001-caddy-tls-proxy.md):
+Caddy terminates TLS and proxies to `opencode web` on localhost; the login
+password comes from an SSM SecureString parameter (never in repo/state).
+
+One-time setup (from your laptop, needs AWS credentials):
+
+```bash
+# 1. store the web password (username is `opencode`)
+aws ssm put-parameter --region eu-west-1 --name /opencode/server-password \
+  --type SecureString --value 'YOUR-STRONG-PASSWORD'
+
+# 2. set your domain in environments/prod.tfvars
+domain_name = "code.example.com"
+
+# 3. point DNS at the server
+# A record: code.example.com -> $(terraform output -raw public_ip)
+```
+
+Push to `main`; the pipeline replaces the instance (EIP and DNS survive).
+After boot, open `https://code.example.com` on your phone and log in as
+`opencode`. Caddy fetches the Let's Encrypt certificate automatically —
+verify DNS first: `dig +short code.example.com` must equal the EIP.
 
 ## Fully local deploy (Moto)
 

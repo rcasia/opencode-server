@@ -9,10 +9,13 @@ subnet (no NAT), Elastic IP, SSM access, optional SSH key.
 - `versions.tf` — terraform + AWS provider pins, S3 backend, default tags
 - `variables.tf` / `locals.tf` / `data.tf` — inputs, naming/tags, AMI + AZs
 - `main.tf` — composes `modules/network` + `modules/compute` only
-- `modules/network` — VPC, subnet, IGW, routes, SG (22 + opencode port)
+- `modules/network` — VPC, subnet, IGW, routes, SG (SSH /32 + Caddy 80/443)
 - `modules/compute` — IAM role for SSM, optional key pair, EC2, EIP,
-  `user_data.sh` bootstrap (docker, Node 22, opencode)
-- `outputs.tf` — instance_id, public_ip, vpc/sg ids, ssh/ssm commands
+  `user_data.sh` bootstrap (docker, Node 22, opencode web as localhost-only
+  systemd service + Caddy TLS proxy, password from SSM SecureString)
+- `outputs.tf` — instance_id, public_ip, vpc/sg ids, ssh/ssm commands, opencode_url
+- `docs/adr/` — architecture decision records (index + template); add one per
+  significant infra/security choice, never rewrite an accepted record
 - `bootstrap/` — one-time stack for the S3 state bucket (local state)
 - `backend.hcl.example` — copy to `backend.hcl` (gitignored) after bootstrap
 - `terraform.tfvars.example` — copy to `terraform.tfvars` (gitignored)
@@ -64,7 +67,9 @@ Load these before changing infra:
    explicit user confirmation.
 7. Security defaults: restrict `allowed_ssh_cidr` to `YOUR_IP/32`,
    keep EBS encrypted, keep provider pin `~> 6.0`, keep default tags
-   (`Project`, `Environment`, `ManagedBy`).
+   (`Project`, `Environment`, `ManagedBy`). Caddy 80/443 is intentionally
+   `0.0.0.0/0` (Let's Encrypt + roaming phones) per `docs/adr/0001-*`;
+   opencode itself stays localhost-only with an SSM-backed password.
 8. Cheap by design: single AZ public subnet, no NAT gateway, EIP attached
    to the instance. Call out any change that adds recurring cost.
 9. Fully local deploys target Moto only (`environment = "local"` plus
