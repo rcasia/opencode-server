@@ -54,10 +54,10 @@ Load these before changing infra:
    then `init -migrate-state -backend-config=backend.hcl` once.
 5. `terraform fmt -recursive` and `terraform validate` must pass locally
    before push. CI runs `fmt -check`, `init -backend=false`, `validate`.
-6. Pipeline-only deploys to real AWS: `terraform apply` with real
-   credentials happens ONLY via the `deploy` workflow (dispatch `plan`
-   first, review, then `apply`). Local applies target Moto only. Never
-   `destroy` without explicit user confirmation.
+6. Pipeline-only deploys to real AWS: pushes to `main` deploy prod
+   automatically once `ci` is green (`deploy`: Moto check, plan, apply).
+   Local applies target Moto only. Never `destroy` without explicit
+   user confirmation.
 7. Security defaults: restrict `allowed_ssh_cidr` to `YOUR_IP/32`,
    keep EBS encrypted, keep provider pin `~> 5.0`, keep default tags
    (`Project`, `Environment`, `ManagedBy`).
@@ -69,12 +69,11 @@ Load these before changing infra:
 
 ## Workflows
 
-Local runs target Moto only; prod deploys run ONLY via the pipeline
-(gated by a Moto check first):
+Local runs target Moto only; pushing to `main` ships prod automatically
+once `ci` is green (deploy: Moto check, plan, apply — no manual step):
 
 ```bash
-gh workflow run deploy --ref main -f action=plan
-gh workflow run deploy --ref main -f action=apply
+git push origin main
 ```
 
 `make plan-prod` is a local pre-flight plan only. Secrets: `AWS_ROLE_ARN`
@@ -131,6 +130,6 @@ How its practices map to this repo:
 - Moto is a mock, not a prod clone. It catches config errors, not
   real-AWS behavior. The prod `plan` artifact inside `deploy` is the
   gate that sees the real environment — review it before `apply`.
-- Automate deployment, decide release. The pipeline builds the plan and
-  can apply it, but `apply` is a manual dispatch: shipping to prod stays
-  a human decision, never a side effect of pushing.
+- Automate deployment, gate on green. Merging to `main` ships prod
+  automatically once `ci` passes — never push anything you wouldn't
+  release.

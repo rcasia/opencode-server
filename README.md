@@ -11,19 +11,19 @@ Provisions: VPC + public subnet + IGW, security group (SSH + opencode 4096), IAM
 - `modules/compute` — IAM role (SSM), optional key pair, EC2, EIP
 - `bootstrap/` — one-time stack creating the S3 state bucket
 
-## Usage (prod deploys via pipeline only)
+## Usage (prod deploys automatically)
 
-Prod deploys run ONLY through the `deploy` workflow. Never
-`terraform apply` against real AWS from your laptop; local runs target
-the Moto mock (see below).
+Push to `main` → green `ci` → `deploy` runs automatically (Moto check,
+plan, apply). There is no manual step and no local apply against real
+AWS; local runs target the Moto mock (see below).
 
 ```bash
-gh workflow run deploy --ref main -f action=plan    # plan only
-gh workflow run deploy --ref main -f action=apply   # plan + apply
+git push origin main   # ci must go green; deploy follows on its own
 ```
 
 `make plan-prod` works as a local pre-flight plan (needs credentials
-plus `backend.hcl`), but apply happens in GitHub Actions with OIDC.
+plus `backend.hcl`). Until `AWS_ROLE_ARN` is configured, deploy jobs
+skip instead of failing.
 
 ## Pipeline setup (one-time, AWS console)
 
