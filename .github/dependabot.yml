@@ -34,18 +34,7 @@ updates:
     commit-message:
       prefix: chore
 
-  # Docker: same policy for the pinned app images (app/compose.yaml).
-  # Images stay pinned tag@digest; dependabot bumps tag and digest together.
-  - package-ecosystem: docker
-    directory: /app
-    schedule:
-      interval: daily
-    cooldown:
-      default-days: 21
-    groups:
-      docker:
-        patterns:
-          - "*"
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: chore
+  # NOTE: no `docker` ecosystem entry on purpose. Dependabot's docker
+  # updater only handles Dockerfiles and Kubernetes manifests — it aborts
+  # on compose-only dirs ("No Dockerfiles nor Kubernetes YAML found").
+  # app/compose.yaml image pins are bumped by hand (see README).
