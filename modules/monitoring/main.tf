@@ -23,6 +23,16 @@ resource "aws_cloudwatch_log_group" "secure" {
   retention_in_days = 30
 }
 
+resource "aws_cloudwatch_log_group" "boot" {
+  name              = "${var.name_prefix}-boot"
+  retention_in_days = 30
+}
+
+resource "aws_cloudwatch_log_group" "containers" {
+  name              = "${var.name_prefix}-containers"
+  retention_in_days = 30
+}
+
 resource "aws_cloudwatch_log_metric_filter" "login_401" {
   name           = "${var.name_prefix}-login-401"
   log_group_name = aws_cloudwatch_log_group.caddy.name

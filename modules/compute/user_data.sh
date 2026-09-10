@@ -8,10 +8,17 @@ dnf install -y docker git tmux htop jq unzip tar rsyslog amazon-cloudwatch-agent
 
 # Persistent data disk (ADR-0008): format once, mount at /var/lib/docker so
 # containers, images, sessions, and certs survive instance replacement.
+# The EBS attach races with first boot, so wait for the device instead of
+# dying instantly (an instant exit 1 here once bricked two deploys).
 VOL_SFX=$(echo "${data_volume_id}" | tr -d '-')
-DATA_DEV=$(ls /dev/disk/by-id/ | grep -i "$VOL_SFX" | head -1)
+DATA_DEV=""
+for _ in $(seq 1 60); do
+  DATA_DEV=$(ls /dev/disk/by-id/ | grep -i "$VOL_SFX" | head -1 || true)
+  [ -n "$DATA_DEV" ] && break
+  sleep 5
+done
+[ -n "$DATA_DEV" ] || { echo "data volume ${data_volume_id} never attached"; exit 1; }
 DEVICE="/dev/disk/by-id/$DATA_DEV"
-[ -n "$DATA_DEV" ] || { echo "data volume ${data_volume_id} not found"; exit 1; }
 blkid "$DEVICE" >/dev/null 2>&1 || mkfs -t ext4 "$DEVICE"
 UUID=$(blkid -s UUID -o value "$DEVICE")
 mkdir -p /var/lib/docker
@@ -78,6 +85,16 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<CW_EOF
           {
             "file_path": "/var/log/secure",
             "log_group_name": "${name_prefix}-secure",
+            "log_stream_name": "{instance_id}"
+          },
+          {
+            "file_path": "/var/log/cloud-init-output.log",
+            "log_group_name": "${name_prefix}-boot",
+            "log_stream_name": "{instance_id}"
+          },
+          {
+            "file_path": "/var/lib/docker/containers/*/*.log",
+            "log_group_name": "${name_prefix}-containers",
             "log_stream_name": "{instance_id}"
           }
         ]
