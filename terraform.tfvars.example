@@ -8,3 +8,4 @@ root_volume_size            = 30
 opencode_port               = 4096
 opencode_password_parameter = "/opencode/server-password" # SecureString you create via aws ssm put-parameter
 domain_name                 = ""                          # TODO: your domain for Caddy TLS, e.g. "code.example.com"
+alert_email                 = ""                          # TODO: your email for intrusion alarms

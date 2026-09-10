@@ -134,6 +134,18 @@ After boot, open `https://54-170-161-9.nip.io` on your phone and log in as
 `opencode`. If the EIP ever changes, update `domain_name` to match
 (`<new-ip-with-dashes>.nip.io`).
 
+## Intrusion alerts
+
+Port 443 is public by design, so scanners will knock. Caddy access logs and
+sshd logs ship to CloudWatch; alarms email you on login probing (≥20 HTTP
+401s in 5 min) or SSH probing (≥3 failures in 5 min). Rationale:
+[`docs/adr/0006-intrusion-alerting.md`](docs/adr/0006-intrusion-alerting.md).
+Cost is cents per month (log ingestion + 2 alarms).
+
+Setup: set `alert_email` in `environments/prod.tfvars`, push, then click
+the SNS confirmation email (subscription stays `PendingConfirmation`
+until you do — no emails before that).
+
 ## Fully local deploy (Moto)
 
 Docker running, no AWS credentials, no pip install. Everything runs

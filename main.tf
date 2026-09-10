@@ -21,3 +21,10 @@ module "compute" {
   opencode_password_parameter = var.opencode_password_parameter
   domain_name                 = var.domain_name
 }
+
+module "monitoring" {
+  source = "./modules/monitoring"
+
+  name_prefix = local.name_prefix
+  alert_email = var.alert_email
+}

@@ -8,12 +8,14 @@ subnet (no NAT), Elastic IP, SSM access, optional SSH key.
 
 - `versions.tf` — terraform + AWS provider pins, S3 backend, default tags
 - `variables.tf` / `locals.tf` / `data.tf` — inputs, naming/tags, AMI + AZs
-- `main.tf` — composes `modules/network` + `modules/compute` only
+- `main.tf` — composes `modules/network` + `modules/compute` + `modules/monitoring`
 - `modules/network` — VPC, subnet, IGW, routes, SG (SSH /32 + Caddy 80/443)
 - `modules/compute` — IAM role for SSM, optional key pair, EC2, EIP,
   `user_data.sh` bootstrap (docker, Node 22, opencode web as localhost-only
   systemd service + Caddy TLS proxy, password from SSM SecureString)
 - `outputs.tf` — instance_id, public_ip, vpc/sg ids, ssh/ssm commands, opencode_url
+- `modules/monitoring` — SNS topic + optional email subscription, CW log groups,
+  metric filters (Caddy 401s, sshd failures) + alarms (see ADR-0006)
 - `docs/adr/` — architecture decision records (index + template); add one per
   significant infra/security choice, never rewrite an accepted record
 - `bootstrap/` — one-time stack for the S3 state bucket (local state)

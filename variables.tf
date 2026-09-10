@@ -76,6 +76,12 @@ variable "opencode_password_parameter" {
   default     = "/opencode/server-password"
 }
 
+variable "alert_email" {
+  description = "Email for intrusion alarms. Empty disables the email subscription."
+  type        = string
+  default     = ""
+}
+
 variable "domain_name" {
   description = "Public domain for opencode web (Caddy automatic TLS). Empty skips Caddy config."
 

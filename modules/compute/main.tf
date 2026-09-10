@@ -20,6 +20,11 @@ resource "aws_iam_role_policy_attachment" "ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+resource "aws_iam_role_policy_attachment" "cloudwatch_agent" {
+  role       = aws_iam_role.server.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+}
+
 data "aws_caller_identity" "current" {}
 
 data "aws_iam_policy_document" "opencode_password" {
@@ -53,7 +58,11 @@ resource "aws_instance" "server" {
   vpc_security_group_ids = [var.security_group_id]
   iam_instance_profile   = aws_iam_instance_profile.server.name
   key_name               = var.ssh_public_key != "" ? aws_key_pair.server[0].key_name : null
+  # v6 defaults this to false (in-place update that never re-runs user_data);
+  # this server is cattle: bootstrap changes must replace it.
+  user_data_replace_on_change = true
   user_data = templatefile("${path.module}/user_data.sh", {
+    name_prefix                 = var.name_prefix
     opencode_port               = var.opencode_port
     aws_region                  = var.aws_region
     opencode_password_parameter = var.opencode_password_parameter

@@ -68,12 +68,54 @@ dnf copr enable -y @caddy/caddy
 dnf install -y caddy
 if [ -n "${domain_name}" ]; then
   cat > /etc/caddy/Caddyfile <<CADDY_EOF
+{
+	log access.log {
+		output file /var/log/caddy/access.log {
+			roll_size 10mb
+			roll_keep 3
+		}
+		format json
+	}
+}
 ${domain_name} {
 	reverse_proxy 127.0.0.1:${opencode_port}
 }
 CADDY_EOF
+  mkdir -p /var/log/caddy
   systemctl enable --now caddy
 fi
+
+# Intrusion visibility (ADR-0006): ship Caddy access logs + sshd syslog to
+# CloudWatch; metric filters + alarms live in modules/monitoring.
+dnf install -y rsyslog amazon-cloudwatch-agent
+systemctl enable --now rsyslog
+cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<CW_EOF
+{
+  "agent": {
+    "metrics_collection_interval": 60,
+    "run_as_user": "root"
+  },
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/var/log/caddy/access.log",
+            "log_group_name": "${name_prefix}-caddy",
+            "log_stream_name": "{instance_id}"
+          },
+          {
+            "file_path": "/var/log/secure",
+            "log_group_name": "${name_prefix}-secure",
+            "log_stream_name": "{instance_id}"
+          }
+        ]
+      }
+    }
+  }
+}
+CW_EOF
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
 
 # Persist port info for motd
 echo "OPENCODE_PORT=${opencode_port}" > /etc/opencode-server
