@@ -47,7 +47,8 @@ Load these before changing infra:
 2. Never pre-check manually — no `pre-commit run`, `terraform validate`,
    or linters by hand before committing. Stage, commit, and rely on the
    pre-commit hook feedback. If it fails, fix and re-stage — never bypass
-   with `--no-verify`.
+   with `--no-verify`. If a check is needed on a regular basis, add it to
+   `.pre-commit-config.yaml` instead of running it by hand.
 3. Always rely on GitHub Actions outcome after push (`gh run watch`).
    `pre-commit` and `terraform` jobs must both be green.
 4. Never commit state or secrets: no `*.tfstate*`, no `terraform.tfvars`,
