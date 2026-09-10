@@ -14,6 +14,8 @@ subnet (no NAT), Elastic IP, SSM access, optional SSH key.
 - `outputs.tf` — instance_id, public_ip, vpc/sg ids, ssh/ssm commands
 - `user_data.sh` — bootstrap: docker, Node 22, opencode
 - `terraform.tfvars.example` — copy to `terraform.tfvars` (gitignored)
+- `environments/staging.tfvars` — committed staging defaults; local = staging
+- `Makefile` — `init` / `fmt` / `validate` / `plan-staging` / `apply-staging` / `pre-commit`
 - `.pre-commit-config.yaml` — file hygiene + terraform_fmt + terraform_validate
 - `.github/workflows/ci.yml` — jobs `pre-commit` and `terraform`
 
@@ -38,7 +40,8 @@ Load these before changing infra:
 3. Always rely on GitHub Actions outcome after push (`gh run watch`).
    `pre-commit` and `terraform` jobs must both be green.
 4. Never commit state or secrets: no `*.tfstate*`, no `terraform.tfvars`,
-   no private keys. `ssh_public_key` stays empty unless needed; prefer SSM.
+   no private keys. `environments/*.tfvars` holds committed non-secret
+   defaults only. `ssh_public_key` stays empty unless needed; prefer SSM.
 5. `terraform fmt -recursive` and `terraform validate` must pass locally
    before push. CI runs `fmt -check`, `init -backend=false`, `validate`.
 6. Plan before apply. Never `apply -auto-approve` locally; review the plan.
@@ -50,6 +53,13 @@ Load these before changing infra:
    to the instance. Call out any change that adds recurring cost.
 
 ## Workflows
+
+Local = staging. Deploy from your laptop to staging:
+
+```bash
+make plan-staging
+make apply-staging
+```
 
 ```bash
 cp terraform.tfvars.example terraform.tfvars  # set allowed_ssh_cidr
