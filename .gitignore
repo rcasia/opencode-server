@@ -11,9 +11,10 @@ override.tf.json
 .terraformrc
 terraform.rc
 
-# vars with secrets - never commit
+# vars with secrets - never commit (except checked-in env defaults)
 *.tfvars
 !*.example.tfvars
+!environments/*.tfvars
 *.tfvars.json
 
 # cli
