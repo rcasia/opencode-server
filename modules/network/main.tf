@@ -52,11 +52,19 @@ resource "aws_security_group" "server" {
   }
 
   ingress {
-    description = "opencode"
-    from_port   = var.opencode_port
-    to_port     = var.opencode_port
+    description = "HTTP for Caddy (Let's Encrypt HTTP-01 + redirect)"
+    from_port   = 80
+    to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = [var.allowed_ssh_cidr]
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "HTTPS for Caddy (opencode web via reverse proxy)"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   egress {

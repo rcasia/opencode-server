@@ -20,6 +20,21 @@ resource "aws_iam_role_policy_attachment" "ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+data "aws_caller_identity" "current" {}
+
+data "aws_iam_policy_document" "opencode_password" {
+  statement {
+    actions   = ["ssm:GetParameter"]
+    resources = ["arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${var.opencode_password_parameter}"]
+  }
+}
+
+resource "aws_iam_role_policy" "opencode_password" {
+  name   = "${var.name_prefix}-opencode-password"
+  role   = aws_iam_role.server.name
+  policy = data.aws_iam_policy_document.opencode_password.json
+}
+
 resource "aws_iam_instance_profile" "server" {
   name = "${var.name_prefix}-profile"
   role = aws_iam_role.server.name
@@ -38,7 +53,12 @@ resource "aws_instance" "server" {
   vpc_security_group_ids = [var.security_group_id]
   iam_instance_profile   = aws_iam_instance_profile.server.name
   key_name               = var.ssh_public_key != "" ? aws_key_pair.server[0].key_name : null
-  user_data              = templatefile("${path.module}/user_data.sh", { opencode_port = var.opencode_port })
+  user_data = templatefile("${path.module}/user_data.sh", {
+    opencode_port               = var.opencode_port
+    aws_region                  = var.aws_region
+    opencode_password_parameter = var.opencode_password_parameter
+    domain_name                 = var.domain_name
+  })
 
   root_block_device {
     volume_size = var.root_volume_size

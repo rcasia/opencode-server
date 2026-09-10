@@ -27,3 +27,8 @@ output "ssm_command" {
   description = "Keyless shell via Session Manager"
   value       = "aws sso login --profile <profile> 2>/dev/null; aws ssm start-session --region ${var.aws_region} --target ${module.compute.instance_id}"
 }
+
+output "opencode_url" {
+  description = "Public opencode web URL (requires domain_name + DNS A record to the EIP)"
+  value       = var.domain_name != "" ? "https://${var.domain_name}" : "no domain_name set — Caddy not configured"
+}

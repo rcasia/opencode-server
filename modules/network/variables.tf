@@ -21,12 +21,6 @@ variable "availability_zone" {
 }
 
 variable "allowed_ssh_cidr" {
-  description = "CIDR allowed for SSH and the opencode port"
+  description = "CIDR allowed for SSH"
   type        = string
-}
-
-variable "opencode_port" {
-  description = "Port for opencode web / serve"
-  type        = number
-  default     = 4096
 }

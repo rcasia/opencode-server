@@ -42,3 +42,20 @@ variable "opencode_port" {
   type        = number
   default     = 4096
 }
+
+variable "aws_region" {
+  description = "AWS region (used to fetch the opencode password from SSM)"
+  type        = string
+}
+
+variable "opencode_password_parameter" {
+  description = "SSM SecureString parameter holding OPENCODE_SERVER_PASSWORD"
+  type        = string
+  default     = "/opencode/server-password"
+}
+
+variable "domain_name" {
+  description = "Public domain for opencode web (Caddy TLS). Empty skips Caddy config."
+  type        = string
+  default     = ""
+}

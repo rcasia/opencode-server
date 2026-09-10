@@ -46,7 +46,7 @@ variable "instance_type" {
 }
 
 variable "allowed_ssh_cidr" {
-  description = "CIDR allowed for SSH and opencode port. Restrict to your IP, e.g. 1.2.3.4/32"
+  description = "CIDR allowed for SSH. Restrict to your IP, e.g. 1.2.3.4/32"
   type        = string
   default     = "0.0.0.0/0"
 }
@@ -68,4 +68,22 @@ variable "opencode_port" {
   description = "Port for opencode web / serve"
   type        = number
   default     = 4096
+}
+
+variable "opencode_password_parameter" {
+  description = "SSM SecureString parameter holding the opencode web password"
+  type        = string
+  default     = "/opencode/server-password"
+}
+
+variable "domain_name" {
+  description = "Public domain for opencode web (Caddy automatic TLS). Empty skips Caddy config."
+
+  type    = string
+  default = ""
+
+  validation {
+    condition     = var.domain_name == "" || can(regex("^[a-z0-9.-]+$", var.domain_name))
+    error_message = "domain_name must be empty or a plain hostname, e.g. code.example.com."
+  }
 }
