@@ -1,9 +1,15 @@
 name: deploy
 
-# Automatic prod deploys, gatekept ONLY by a green ci run on main.
-# Push to main -> ci succeeds -> moto check -> plan -> apply.
-# No manual dispatch, no local applies against real AWS.
-# Without AWS_ROLE_ARN configured the jobs skip (neutral, not red).
+# Automatic prod deploys — no manual dispatch, no approvals.
+# Trigger: runs only when the ci workflow completes (workflow_run), and
+#   proceeds only if ci concluded success on main (PR branches never deploy).
+# Pipeline: local-check (moto plan on the exact ci sha, no credentials)
+#   -> deploy-prod (OIDC creds -> S3 init -> validate -> plan -out=tfplan
+#   -> apply tfplan -> smoke test: instance reaches running).
+# Requirements: AWS_ROLE_ARN secret + TF_STATE_BUCKET variable must exist;
+#   missing secrets fail red on purpose (no silent skips).
+# Rollback: revert the commit on main and push; the next green run
+#   re-applies the previous state (state is versioned in S3).
 
 on:
   workflow_run:

@@ -1,3 +1,7 @@
+# ci — commit stage. Runs on every push to main and every PR (~1 min).
+# Jobs: pre-commit (hooks) -> terraform (fmt -check, init, validate)
+#   -> local (moto plan, zero AWS credentials).
+# A green ci run on main is the ONLY trigger for prod deploys (see deploy.yml).
 name: ci
 
 on:
