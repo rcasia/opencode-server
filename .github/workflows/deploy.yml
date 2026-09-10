@@ -9,7 +9,6 @@ on:
   workflow_run:
     workflows: [ci]
     types: [completed]
-    branches: [main]
 
 permissions:
   id-token: write
@@ -25,7 +24,8 @@ env:
 
 jobs:
   local-check:
-    if: ${{ github.event.workflow_run.conclusion == 'success' && secrets.AWS_ROLE_ARN != '' }}
+    # branches: filter is invalid under workflow_run; gate on head_branch here.
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && secrets.AWS_ROLE_ARN != '' }}
     runs-on: ubuntu-latest
     defaults:
       run:
