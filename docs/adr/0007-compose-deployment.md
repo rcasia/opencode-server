@@ -102,6 +102,12 @@ updater aborts with "No Dockerfiles nor Kubernetes YAML found". The
 `docker` entry was removed; `app/compose.yaml` pins are bumped by hand
 (process in README). Everything else in this record stands.
 
+## Amendment 2 (2026-09-10, same day)
+
+Correction to the above: Dependabot has a **separate `docker-compose`
+ecosystem** for compose files — the correct entry (now in
+`dependabot.yml`), same cooldown policy. Manual bumping stays as fallback.
+
 ## Related Decisions
 
 - ADR-0001 (Caddy + localhost backend — kept, repackaged)

@@ -148,9 +148,9 @@ make test-boot   # full chain locally: compose up, HTTPS, 401 without creds, 200
 afterwards. It proves installs, config, proxy, and auth — everything except
 Let's Encrypt issuance, which needs the public IP.
 
-Images stay pinned `tag@digest` in `app/compose.yaml`. Dependabot can't
-bump compose pins (its docker updater only reads Dockerfiles), so bump by
-hand every few months:
+Images stay pinned `tag@digest` in `app/compose.yaml`. Dependabot's
+`docker-compose` ecosystem proposes bumps (same 21-day cooldown policy);
+merge with `make test-boot` green. Manual fallback:
 
 ```bash
 docker pull caddy:2.12-alpine   # then copy the printed digest
