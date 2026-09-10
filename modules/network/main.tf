@@ -52,7 +52,7 @@ resource "aws_security_group" "server" {
   }
 
   ingress {
-    description = "HTTP for Caddy (Let's Encrypt HTTP-01 + redirect)"
+    description = "HTTP for Caddy: LE HTTP-01 and redirect"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
@@ -60,7 +60,7 @@ resource "aws_security_group" "server" {
   }
 
   ingress {
-    description = "HTTPS for Caddy (opencode web via reverse proxy)"
+    description = "HTTPS for Caddy: opencode web reverse proxy"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
