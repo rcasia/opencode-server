@@ -36,4 +36,9 @@ echo "PASS: authenticated request accepted ($AUTH_CODE)"
 
 echo "==> Validating live Caddyfile"
 docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+echo "==> Asserting restart contract"
+[ "$(docker inspect app-caddy-1 --format '{{.HostConfig.RestartPolicy.Name}}')" = "always" ]
+[ "$(docker inspect app-opencode-1 --format '{{.HostConfig.RestartPolicy.Name}}')" = "always" ]
+[ "$(docker inspect app-caddy-1 --format '{{.State.Health.Status}}')" = "healthy" ]
+echo "PASS: both services restart=always, caddy healthy"
 echo "ALL BOOT CHECKS PASSED"
