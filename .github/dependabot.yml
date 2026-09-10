@@ -1,0 +1,18 @@
+version: 2
+updates:
+  # GitHub Actions, checked monthly and batched into a single PR so new
+  # releases bake before we adopt them (dependabot has no per-release
+  # delay option; the monthly cadence plus the human merge gate is the
+  # delay). Actions themselves stay pinned to commit SHAs in the
+  # workflows; dependabot bumps the SHA, never a floating tag.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
