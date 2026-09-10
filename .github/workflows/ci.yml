@@ -57,7 +57,12 @@ jobs:
       - name: Start moto server
         run: |
           docker run -d --name moto -p 5000:5000 -e MOTO_IAM_LOAD_MANAGED_POLICIES=true motoserver/moto:latest
-          for i in $(seq 1 30); do curl -sf http://localhost:5000/moto-api/ >/dev/null && break || sleep 2; done
+          for _ in $(seq 1 30); do
+            if curl -sf http://localhost:5000/moto-api/ >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
 
       - name: Create local state bucket
         env:
