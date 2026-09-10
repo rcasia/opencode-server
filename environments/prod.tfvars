@@ -3,7 +3,7 @@
 aws_region       = "eu-west-1"
 project          = "opencode"
 environment      = "prod"
-instance_type    = "t3.micro"
+instance_type    = "t3.small" # 2 vCPU / 2 GB: micro OOMed under real use; +~$7.60/mo
 allowed_ssh_cidr = "88.148.42.240/32"
 ssh_public_key   = "" # optional: "ssh-ed25519 AAAA..."
 root_volume_size = 30
