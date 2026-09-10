@@ -1,8 +1,11 @@
 # ci — commit checks plus automatic prod deploy, one workflow graph.
 # Runs on every push to main and every PR.
-# Jobs: pre-commit -> terraform -> local (moto plan, zero credentials),
-#   then deploy-prod (main pushes only): OIDC -> S3 init -> plan -> apply
-#   (only when the plan has changes) -> smoke test. PR runs skip deploy-prod (no secrets on PRs, never deploy).
+# Jobs: changes (paths-filter) -> pre-commit always, terraform + local only
+#   when infra/pipeline files changed, then deploy-prod (main pushes only,
+#   needs green-or-skipped checks): OIDC -> S3 init -> plan -> apply
+#   (only when the plan has changes) -> smoke test. PR runs skip deploy-prod
+#   (no secrets on PRs, never deploy). Docs-only pushes skip the slow jobs.
+#   All gates fail open: if the filter job breaks, everything runs.
 # Requirements: AWS_ROLE_ARN secret + TF_STATE_BUCKET variable, else the
 #   deploy job fails red. Rollback: revert on main and push; next green run
 #   re-applies (state versioned in S3).
@@ -17,6 +20,33 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      infra: ${{ steps.filter.outputs.infra }}
+      pipeline: ${{ steps.filter.outputs.pipeline }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
+        id: filter
+        with:
+          filters: |
+            infra:
+              - '**/*.tf'
+              - '**/*.sh'
+              - '**/*.tfvars'
+              - '.terraform.lock.hcl'
+            pipeline:
+              - '.github/**'
+              - 'Makefile'
+              - 'compose.yaml'
+              - 'local.backend.hcl'
+              - 'environments/local.tfvars'
+              - '.pre-commit-config.yaml'
+              - '.secrets.baseline'
+
   pre-commit:
     runs-on: ubuntu-latest
     steps:
@@ -31,6 +61,9 @@ jobs:
       - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
 
   terraform:
+    needs: [changes]
+    # Fail open: run unless the filter positively says docs-only.
+    if: always() && (needs.changes.result != 'success' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.pipeline == 'true')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -53,6 +86,9 @@ jobs:
         run: terraform validate
 
   local:
+    needs: [changes]
+    # Fail open: run unless the filter positively says docs-only.
+    if: always() && (needs.changes.result != 'success' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.pipeline == 'true')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -91,8 +127,8 @@ jobs:
         run: terraform plan -var-file=environments/local.tfvars -input=false
 
   deploy-prod:
-    needs: [pre-commit, terraform, local]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [pre-commit, terraform, local, changes]
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.changes.result != 'success' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.pipeline == 'true') && needs.pre-commit.result == 'success' && (needs.terraform.result == 'success' || needs.terraform.result == 'skipped') && (needs.local.result == 'success' || needs.local.result == 'skipped')
     runs-on: ubuntu-latest
     environment: prod
     concurrency:
