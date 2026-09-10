@@ -10,12 +10,12 @@ output "public_ip" {
 
 output "vpc_id" {
   description = "VPC ID"
-  value       = aws_vpc.main.id
+  value       = module.network.vpc_id
 }
 
 output "security_group_id" {
   description = "Security group ID"
-  value       = aws_security_group.server.id
+  value       = module.network.security_group_id
 }
 
 output "ssh_command" {
