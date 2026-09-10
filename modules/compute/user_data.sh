@@ -6,6 +6,18 @@ set -eux
 dnf update -y
 dnf install -y docker git tmux htop jq unzip tar rsyslog amazon-cloudwatch-agent
 
+# Persistent data disk (ADR-0008): format once, mount at /var/lib/docker so
+# containers, images, sessions, and certs survive instance replacement.
+VOL_SFX=$(echo "${data_volume_id}" | tr -d '-')
+DATA_DEV=$(ls /dev/disk/by-id/ | grep -i "$VOL_SFX" | head -1)
+DEVICE="/dev/disk/by-id/$DATA_DEV"
+[ -n "$DATA_DEV" ] || { echo "data volume ${data_volume_id} not found"; exit 1; }
+blkid "$DEVICE" >/dev/null 2>&1 || mkfs -t ext4 "$DEVICE"
+UUID=$(blkid -s UUID -o value "$DEVICE")
+mkdir -p /var/lib/docker
+grep -q "$UUID" /etc/fstab 2>/dev/null || echo "UUID=$UUID /var/lib/docker ext4 defaults,nofail 0 2" >> /etc/fstab
+mount -a
+
 systemctl enable --now docker
 usermod -aG docker ec2-user || true
 

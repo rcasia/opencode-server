@@ -24,6 +24,17 @@ variable "security_group_id" {
   type        = string
 }
 
+variable "availability_zone" {
+  description = "AZ for the instance and the persistent data volume (must match)"
+  type        = string
+}
+
+variable "data_volume_size" {
+  description = "Persistent data disk (Docker state, sessions, certs) in GB"
+  type        = number
+  default     = 10
+}
+
 variable "ssh_public_key" {
   description = "Optional SSH public key. If empty, use SSM Session Manager."
   type        = string

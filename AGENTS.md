@@ -11,8 +11,9 @@ subnet (no NAT), Elastic IP, SSM access, optional SSH key.
 - `main.tf` — composes `modules/network` + `modules/compute` + `modules/monitoring`
 - `modules/network` — VPC, subnet, IGW, routes, SG (SSH /32 + Caddy 80/443)
 - `modules/compute` — IAM role for SSM, optional key pair, EC2, EIP,
-  `user_data.sh` bootstrap (docker, Node 22, opencode web as localhost-only
-  systemd service + Caddy TLS proxy, password from SSM SecureString)
+  persistent EBS data disk at `/var/lib/docker` (see ADR-0008),
+  `user_data.sh` bootstrap (docker, compose app stack from `app/`,
+  CW agent; opencode password from SSM SecureString)
 - `outputs.tf` — instance_id, public_ip, vpc/sg ids, ssh/ssm commands, opencode_url
 - `modules/monitoring` — SNS topic + optional email subscription, CW log groups,
   metric filters (Caddy 401s, sshd failures) + alarms (see ADR-0006)

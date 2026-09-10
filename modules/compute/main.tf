@@ -66,6 +66,7 @@ resource "aws_instance" "server" {
     aws_region                  = var.aws_region
     opencode_password_parameter = var.opencode_password_parameter
     domain_name                 = var.domain_name
+    data_volume_id              = aws_ebs_volume.data.id
     compose_yaml                = file("${path.module}/../../app/compose.yaml")
     caddyfile                   = file("${path.module}/../../app/Caddyfile")
   })
@@ -84,4 +85,23 @@ resource "aws_eip" "server" {
   domain   = "vpc"
 
   tags = { Name = "${var.name_prefix}-eip" }
+}
+
+# Persistent data disk (ADR-0008): mounted at /var/lib/docker so containers,
+# images, sessions, and certs survive instance replacement. Deliberately NOT
+# prevent_destroy (that would break teardown); rule: never destroy without
+# explicit user confirmation.
+resource "aws_ebs_volume" "data" {
+  availability_zone = var.availability_zone
+  size              = var.data_volume_size
+  type              = "gp3"
+  encrypted         = true
+
+  tags = { Name = "${var.name_prefix}-data" }
+}
+
+resource "aws_volume_attachment" "data" {
+  device_name = "/dev/sdf"
+  volume_id   = aws_ebs_volume.data.id
+  instance_id = aws_instance.server.id
 }

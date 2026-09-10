@@ -148,6 +148,12 @@ make test-boot   # full chain locally: compose up, HTTPS, 401 without creds, 200
 afterwards. It proves installs, config, proxy, and auth — everything except
 Let's Encrypt issuance, which needs the public IP.
 
+State survives deploys: a persistent 10 GB encrypted EBS disk is mounted at
+`/var/lib/docker`, so sessions, config, workspace, images, and certs live
+through instance replacement (see
+[`docs/adr/0008-data-volume.md`](docs/adr/0008-data-volume.md)). Only a full
+`terraform destroy` wipes it.
+
 ## Intrusion alerts
 
 Port 443 is public by design, so scanners will knock. Caddy access logs and
