@@ -90,7 +90,7 @@ jobs:
           python3 -c "import base64,json,sys; p=sys.argv[1]; p+='='*(-len(p)%4); d=json.loads(base64.urlsafe_b64decode(p)); print(json.dumps({k: d.get(k) for k in ('sub','aud','iss','repository','ref','event_name','job_workflow_ref')}, indent=2))" "$PAYLOAD"
 
       - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
