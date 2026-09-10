@@ -1,13 +1,20 @@
-# ci — commit stage. Runs on every push to main and every PR (~1 min).
-# Jobs: pre-commit (hooks) -> terraform (fmt -check, init, validate)
-#   -> local (moto plan, zero AWS credentials).
-# A green ci run on main is the ONLY trigger for prod deploys (see deploy.yml).
+# ci — commit checks plus automatic prod deploy, one workflow graph.
+# Runs on every push to main and every PR.
+# Jobs: pre-commit -> terraform -> local (moto plan, zero credentials),
+#   then deploy-prod (main pushes only): OIDC -> S3 init -> plan -> apply
+#   -> smoke test. PR runs skip deploy-prod (no secrets on PRs, never deploy).
+# Requirements: AWS_ROLE_ARN secret + TF_STATE_BUCKET variable, else the
+#   deploy job fails red. Rollback: revert on main and push; next green run
+#   re-applies (state versioned in S3).
 name: ci
 
 on:
   push:
     branches: [main]
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   pre-commit:
@@ -82,3 +89,64 @@ jobs:
 
       - name: Terraform plan (moto, no AWS credentials)
         run: terraform plan -var-file=environments/local.tfvars -input=false
+
+  deploy-prod:
+    needs: [pre-commit, terraform, local]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: prod
+    concurrency:
+      group: prod-deploy
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    env:
+      AWS_REGION: eu-west-1
+      TF_STATE_KEY: opencode-server/prod/terraform.tfstate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "1.13.3"
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform init (S3 backend)
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ env.TF_STATE_KEY }}" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        run: terraform plan -var-file=environments/prod.tfvars -input=false -out=tfplan
+
+      - name: Upload plan (audit)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tfplan-prod
+          path: tfplan
+          retention-days: 30
+
+      - name: Terraform apply
+        run: terraform apply -input=false tfplan
+
+      - name: Smoke test (instance reaches running)
+        run: |
+          terraform output
+          aws ec2 wait instance-running --instance-ids "$(terraform output -raw instance_id)" --region "${{ env.AWS_REGION }}"
