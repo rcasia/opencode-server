@@ -40,3 +40,41 @@ jobs:
 
       - name: Terraform validate
         run: terraform validate
+
+  local:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.13.3"
+          terraform_wrapper: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Start moto server
+        run: |
+          pip install 'moto[server]'
+          MOTO_IAM_LOAD_MANAGED_POLICIES=true nohup python3 -m moto.server -p5000 > /tmp/moto.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://localhost:5000/moto-api/ >/dev/null && break || sleep 2; done
+
+      - name: Create local state bucket
+        env:
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+        run: aws --endpoint-url=http://localhost:5000 --region eu-west-1 s3 mb s3://opencode-local-tfstate
+
+      - name: Terraform init (moto backend)
+        run: terraform init -reconfigure -backend-config=environments/local.backend.hcl -input=false
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan (moto, no AWS credentials)
+        run: terraform plan -var-file=environments/local.tfvars -input=false
