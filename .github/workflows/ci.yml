@@ -7,8 +7,9 @@
 #   (no secrets on PRs, never deploy). Docs-only pushes skip the slow jobs.
 #   All gates fail open: if the filter job breaks, everything runs.
 # Requirements: AWS_ROLE_ARN secret + TF_STATE_BUCKET variable, else the
-#   deploy job fails red. Rollback: revert on main and push; next green run
-#   re-applies (state versioned in S3).
+#   deploy job fails red. Optional: ALERT_EMAIL variable (intrusion alarm
+#   recipient; absent = alarms exist but email no one). Rollback: revert on
+#   main and push; next green run re-applies (state versioned in S3).
 name: ci
 
 on:
@@ -143,6 +144,7 @@ jobs:
     env:
       AWS_REGION: eu-west-1
       TF_STATE_KEY: opencode-server/prod/terraform.tfstate
+      TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

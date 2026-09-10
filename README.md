@@ -142,9 +142,10 @@ sshd logs ship to CloudWatch; alarms email you on login probing (≥20 HTTP
 [`docs/adr/0006-intrusion-alerting.md`](docs/adr/0006-intrusion-alerting.md).
 Cost is cents per month (log ingestion + 2 alarms).
 
-Setup: set `alert_email` in `environments/prod.tfvars`, push, then click
-the SNS confirmation email (subscription stays `PendingConfirmation`
-until you do — no emails before that).
+Setup: set the `ALERT_EMAIL` Actions variable (repo Settings → Secrets
+and variables → Actions → Variables tab), push, then click the SNS
+confirmation email (subscription stays `PendingConfirmation` until you do
+— no emails before that).
 
 ## Fully local deploy (Moto)
 

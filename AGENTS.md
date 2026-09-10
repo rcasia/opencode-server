@@ -91,7 +91,8 @@ git push origin main
 
 `make plan-prod` is a local pre-flight plan only. Secrets: `AWS_ROLE_ARN`
 (secret, OIDC role for `repo:rcasia/opencode-server:*`), `TF_STATE_BUCKET`
-(variable). No long-lived AWS keys anywhere.
+(variable). Optional: `ALERT_EMAIL` (variable, intrusion alarm recipient).
+No long-lived AWS keys anywhere.
 
 ```bash
 cp terraform.tfvars.example terraform.tfvars  # set allowed_ssh_cidr

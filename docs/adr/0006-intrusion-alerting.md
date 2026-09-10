@@ -63,8 +63,9 @@ vectors with zero new infrastructure to operate.
 ### Positive
 
 - Probers trigger an email within ~5 minutes; logs retained 30 days for forensics.
-- Thresholds and email live in Terraform (`alert_email`, empty disables
-  the subscription but keeps the alarms).
+- The address arrives via the `ALERT_EMAIL` Actions variable
+  (`TF_VAR_alert_email`); absent means the subscription is skipped but the
+  alarms still exist.
 
 ### Negative
 
@@ -79,7 +80,8 @@ vectors with zero new infrastructure to operate.
 - `modules/compute`: `CloudWatchAgentServerPolicy` attachment;
   `user_data.sh` installs `rsyslog` + agent, Caddyfile gains a JSON
   `access.log`.
-- Operator steps: set `alert_email`, click the SNS confirmation email.
+- Operator steps: set the `ALERT_EMAIL` Actions variable, click the SNS
+  confirmation email.
 
 ## Related Decisions
 
