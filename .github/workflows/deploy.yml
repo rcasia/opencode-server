@@ -1,19 +1,15 @@
 name: deploy
 
-# Pipeline-only deploys to prod. No local applies against real AWS.
-# Run: gh workflow run deploy --ref main -f action=plan|apply
+# Automatic prod deploys, gatekept ONLY by a green ci run on main.
+# Push to main -> ci succeeds -> moto check -> plan -> apply.
+# No manual dispatch, no local applies against real AWS.
+# Without AWS_ROLE_ARN configured the jobs skip (neutral, not red).
 
 on:
-  workflow_dispatch:
-    inputs:
-      action:
-        description: "plan only, or plan + apply"
-        required: true
-        default: plan
-        type: choice
-        options:
-          - plan
-          - apply
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
 
 permissions:
   id-token: write
@@ -29,12 +25,15 @@ env:
 
 jobs:
   local-check:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && secrets.AWS_ROLE_ARN != '' }}
     runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -61,7 +60,7 @@ jobs:
       - name: Terraform plan (moto, no AWS credentials)
         run: terraform plan -var-file=environments/local.tfvars -input=false
 
-  plan:
+  deploy-prod:
     needs: local-check
     runs-on: ubuntu-latest
     environment: prod
@@ -70,6 +69,8 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -97,48 +98,12 @@ jobs:
       - name: Terraform plan
         run: terraform plan -var-file=environments/prod.tfvars -input=false -out=tfplan
 
-      - name: Upload plan
+      - name: Upload plan (audit)
         uses: actions/upload-artifact@v4
         with:
-          name: tfplan
+          name: tfplan-prod
           path: tfplan
-          retention-days: 7
-
-  apply:
-    needs: plan
-    if: inputs.action == 'apply'
-    runs-on: ubuntu-latest
-    environment: prod
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.13.3"
-          terraform_wrapper: false
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Terraform init (S3 backend)
-        run: |
-          terraform init -input=false \
-            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
-            -backend-config="key=${{ env.TF_STATE_KEY }}" \
-            -backend-config="region=${{ env.AWS_REGION }}" \
-            -backend-config="encrypt=true" \
-            -backend-config="use_lockfile=true"
-
-      - name: Download plan
-        uses: actions/download-artifact@v4
-        with:
-          name: tfplan
+          retention-days: 30
 
       - name: Terraform apply
         run: terraform apply -input=false tfplan
