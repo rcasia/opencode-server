@@ -1,0 +1,9 @@
+# Moto mock for fully local deploys. No AWS credentials, no pip install.
+#   make local-up && make plan-local && make apply-local
+services:
+  moto:
+    image: motoserver/moto:latest
+    ports:
+      - "5000:5000"
+    environment:
+      - MOTO_IAM_LOAD_MANAGED_POLICIES=true
