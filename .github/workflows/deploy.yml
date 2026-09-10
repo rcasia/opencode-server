@@ -25,7 +25,9 @@ env:
 jobs:
   local-check:
     # branches: filter is invalid under workflow_run; gate on head_branch here.
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && secrets.AWS_ROLE_ARN != '' }}
+    # Missing secrets fail red on purpose (no silent skips): configure
+    # AWS_ROLE_ARN / TF_STATE_BUCKET before expecting green.
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -43,7 +45,12 @@ jobs:
       - name: Start moto server
         run: |
           docker run -d --name moto -p 5000:5000 -e MOTO_IAM_LOAD_MANAGED_POLICIES=true motoserver/moto:latest
-          for i in $(seq 1 30); do curl -sf http://localhost:5000/moto-api/ >/dev/null && break || sleep 2; done
+          for _ in $(seq 1 30); do
+            if curl -sf http://localhost:5000/moto-api/ >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
 
       - name: Create local state bucket
         env:
