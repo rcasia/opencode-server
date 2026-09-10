@@ -1,3 +1,21 @@
+variable "aws_endpoint_url" {
+  description = "Endpoint URL override for fully local deploys (LocalStack). Empty means real AWS."
+  type        = string
+  default     = ""
+}
+
+variable "ami_id" {
+  description = "Override AMI lookup. Required for LocalStack, which has no AL2023 images."
+  type        = string
+  default     = ""
+}
+
+variable "availability_zone" {
+  description = "Override AZ lookup. Useful for LocalStack, whose AZs are mocked."
+  type        = string
+  default     = ""
+}
+
 variable "aws_region" {
   description = "AWS region for the coding server"
   type        = string
@@ -16,8 +34,8 @@ variable "environment" {
   default     = "dev"
 
   validation {
-    condition     = contains(["dev", "staging", "prod"], var.environment)
-    error_message = "Environment must be dev, staging, or prod."
+    condition     = contains(["dev", "staging", "prod", "local"], var.environment)
+    error_message = "Environment must be dev, staging, prod, or local."
   }
 }
 
