@@ -2,7 +2,7 @@
 # Runs on every push to main and every PR.
 # Jobs: pre-commit -> terraform -> local (moto plan, zero credentials),
 #   then deploy-prod (main pushes only): OIDC -> S3 init -> plan -> apply
-#   -> smoke test. PR runs skip deploy-prod (no secrets on PRs, never deploy).
+#   (only when the plan has changes) -> smoke test. PR runs skip deploy-prod (no secrets on PRs, never deploy).
 # Requirements: AWS_ROLE_ARN secret + TF_STATE_BUCKET variable, else the
 #   deploy job fails red. Rollback: revert on main and push; next green run
 #   re-applies (state versioned in S3).
@@ -134,19 +134,31 @@ jobs:
         run: terraform validate
 
       - name: Terraform plan
-        run: terraform plan -var-file=environments/prod.tfvars -input=false -out=tfplan
+        id: plan
+        run: |
+          terraform plan -var-file=environments/prod.tfvars -input=false -out=tfplan -detailed-exitcode || exitcode=$?
+          exitcode=${exitcode:-0}
+          echo "exitcode=$exitcode" >> "$GITHUB_OUTPUT"
+          if [ "$exitcode" -eq 1 ]; then exit 1; fi
 
       - name: Upload plan (audit)
+        if: steps.plan.outputs.exitcode == '2'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: tfplan-prod
           path: tfplan
           retention-days: 30
 
+      - name: No changes to apply
+        if: steps.plan.outputs.exitcode == '0'
+        run: echo "Plan is empty — skipping apply and smoke test."
+
       - name: Terraform apply
+        if: steps.plan.outputs.exitcode == '2'
         run: terraform apply -input=false tfplan
 
       - name: Smoke test (instance reaches running)
+        if: steps.plan.outputs.exitcode == '2'
         run: |
           terraform output
           aws ec2 wait instance-running --instance-ids "$(terraform output -raw instance_id)" --region "${{ env.AWS_REGION }}"
