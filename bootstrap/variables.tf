@@ -13,5 +13,5 @@ variable "project" {
 variable "environment" {
   description = "Deployment environment"
   type        = string
-  default     = "staging"
+  default     = "prod"
 }

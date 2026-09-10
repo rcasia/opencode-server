@@ -4,6 +4,6 @@ output "state_bucket" {
 }
 
 output "state_key" {
-  description = "State key for the root stack in staging"
-  value       = "opencode-server/staging/terraform.tfstate"
+  description = "State key for the root stack in prod"
+  value       = "opencode-server/prod/terraform.tfstate"
 }
