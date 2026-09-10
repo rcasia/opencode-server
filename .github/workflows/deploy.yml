@@ -114,3 +114,8 @@ jobs:
 
       - name: Terraform apply
         run: terraform apply -input=false tfplan
+
+      - name: Smoke test (instance reaches running)
+        run: |
+          terraform output
+          aws ec2 wait instance-running --instance-ids "$(terraform output -raw instance_id)" --region "${{ env.AWS_REGION }}"
