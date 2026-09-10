@@ -184,6 +184,10 @@ and variables → Actions → Variables tab), push, then click the SNS
 confirmation email (subscription stays `PendingConfirmation` until you do
 — no emails before that).
 
+Uptime is watched separately: Route 53 probes the unauthenticated
+`/ping` every 30s and pages after 3 failures (~$0.50/mo). Probes never
+touch opencode, so they stay out of the login-failure metric.
+
 ## Fully local deploy (Moto)
 
 Docker running, no AWS credentials, no pip install. Everything runs

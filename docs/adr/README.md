@@ -15,6 +15,7 @@ trade-offs, and never rewrite an accepted record — supersede it with a new one
 | [0006](0006-intrusion-alerting.md)  | Intrusion alerting via CloudWatch + SNS | Accepted | 2026-09-10 |
 | [0007](0007-compose-deployment.md)  | Containerized deployment via compose | Accepted | 2026-09-10 |
 | [0008](0008-data-volume.md)         | Persistent data volume for deploy-often | Accepted | 2026-09-10 |
+| [0009](0009-uptime-monitoring.md)   | External uptime monitoring | Accepted | 2026-09-10 |
 
 ## Creating a New ADR
 

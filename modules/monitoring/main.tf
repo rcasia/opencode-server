@@ -84,3 +84,38 @@ resource "aws_cloudwatch_metric_alarm" "ssh_probe" {
   treat_missing_data  = "ignore"
   alarm_actions       = [aws_sns_topic.alerts.arn]
 }
+
+# External uptime probe: Route53 hits the unauthenticated /ping every 30s
+# and pages on 3 consecutive failures (~$0.50/mo). /ping never touches
+# opencode, so probes stay out of the 401 login-probe metric.
+resource "aws_route53_health_check" "site" {
+  count             = var.domain_name != "" ? 1 : 0
+  type              = "HTTPS"
+  fqdn              = var.domain_name
+  resource_path     = "/ping"
+  port              = 443
+  request_interval  = 30
+  failure_threshold = 3
+  enable_sni        = true
+
+  tags = { Name = "${var.name_prefix}-site" }
+}
+
+resource "aws_cloudwatch_metric_alarm" "site_down" {
+  count               = var.domain_name != "" ? 1 : 0
+  alarm_name          = "${var.name_prefix}-site-down"
+  alarm_description   = "Public site not answering HTTPS: instance, boot, or app failure"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 3
+  metric_name         = "HealthCheckStatus"
+  namespace           = "AWS/Route53"
+  period              = 60
+  statistic           = "Minimum"
+  threshold           = 1
+  treat_missing_data  = "breaching"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+
+  dimensions = {
+    HealthCheckId = aws_route53_health_check.site[0].id
+  }
+}

@@ -2,6 +2,15 @@
 # container environment (app.env). `localhost` gets a local CA cert,
 # public names get automatic Let's Encrypt TLS.
 {$DOMAIN} {
+	# Unauthenticated liveness probe for the Route53 health check (and
+	# test-boot). Everything else falls through to opencode's basic auth,
+	# so probes never pollute the 401 login-probe metric.
+	handle /ping {
+		respond "ok" 200
+	}
+	handle {
+		reverse_proxy opencode:4096
+	}
 	log {
 		output file /var/log/caddy/access.log {
 			roll_size 10mb
@@ -9,5 +18,4 @@
 		}
 		format json
 	}
-	reverse_proxy opencode:4096
 }

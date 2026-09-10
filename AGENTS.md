@@ -18,7 +18,8 @@ subnet (no NAT), Elastic IP, SSM access, optional SSH key.
   deployed_version (commit SHA stamped on instance + data disk as `DeployedRef`)
 - `modules/monitoring` — SNS topic + optional email subscription, CW log groups
   (caddy, secure, boot, containers), metric filters (Caddy 401s, sshd
-  failures) + alarms (see ADR-0006)
+  failures) + alarms, Route53 HTTPS probe on `/ping` + site-down alarm
+  (see ADR-0006, ADR-0009)
 - `app/` — prod compose stack (`compose.yaml` with pinned Caddy + opencode
   images, `Caddyfile`, `app.env.example`); local full-chain test via
   `make test-boot` (see ADR-0007)

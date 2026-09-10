@@ -34,6 +34,10 @@ echo "    authenticated status: $AUTH_CODE"
 [ "$AUTH_CODE" != "401" ] && [ "$AUTH_CODE" != "000" ] || { echo "FAIL: authenticated request rejected ($AUTH_CODE)"; exit 1; }
 echo "PASS: authenticated request accepted ($AUTH_CODE)"
 
+PING_CODE="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 https://localhost/ping)"
+[ "$PING_CODE" = "200" ] || { echo "FAIL: /ping returned $PING_CODE, body:"; curl -sk https://localhost/ping; exit 1; }
+echo "PASS: unauthenticated /ping returns 200 (uptime probe path)"
+
 echo "==> Validating live Caddyfile"
 docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 echo "==> Asserting restart contract"
