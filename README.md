@@ -38,13 +38,16 @@ designed after Fowler's [Continuous Integration](https://martinfowler.com/articl
 ```text
 push to main (PRs run the checks only, never deploy)
 └─ ci, one workflow graph
-     ├─ pre-commit: hygiene + terraform fmt/validate + actionlint
-     ├─ terraform: fmt -check, init -backend=false, validate
-     ├─ local: moto plan with zero AWS credentials
-     └─ deploy-prod (main pushes only, needs the three jobs above green)
+     ├─ changes: paths-filter (infra vs pipeline vs docs-only)
+     ├─ pre-commit: always (hygiene + terraform fmt/validate + actionlint + secrets)
+     ├─ terraform: only on infra/pipeline changes (fmt -check, init, validate)
+     ├─ local: only on infra/pipeline changes (moto plan, zero credentials)
+     └─ deploy-prod (main pushes only, needs green-or-skipped checks)
           ├─ OIDC creds → init (S3) → validate → plan
           └─ apply + smoke test, only when the plan has changes
 ```
+Gates fail open: if the filter breaks, everything runs. Docs-only pushes
+skip `terraform`, `local`, and `deploy-prod` entirely.
 
 - **Build once, ship that artifact.** `plan -out=tfplan` then `apply tfplan`
   — the exact reviewed plan is what ships. Kept as the `tfplan-prod`
@@ -117,21 +120,19 @@ password comes from an SSM SecureString parameter (never in repo/state).
 One-time setup (from your laptop, needs AWS credentials):
 
 ```bash
-# 1. store the web password (username is `opencode`)
+# store the web password (username is `opencode`)
 aws ssm put-parameter --region eu-west-1 --name /opencode/server-password \
   --type SecureString --value 'YOUR-STRONG-PASSWORD'
-
-# 2. set your domain in environments/prod.tfvars
-domain_name = "code.example.com"
-
-# 3. point DNS at the server
-# A record: code.example.com -> $(terraform output -raw public_ip)
 ```
 
+No DNS step needed: `domain_name` in `environments/prod.tfvars` uses
+`nip.io` wildcard DNS (`54-170-161-9.nip.io` resolves to the EIP), and Caddy
+gets a real Let's Encrypt certificate for it automatically.
+
 Push to `main`; the pipeline replaces the instance (EIP and DNS survive).
-After boot, open `https://code.example.com` on your phone and log in as
-`opencode`. Caddy fetches the Let's Encrypt certificate automatically —
-verify DNS first: `dig +short code.example.com` must equal the EIP.
+After boot, open `https://54-170-161-9.nip.io` on your phone and log in as
+`opencode`. If the EIP ever changes, update `domain_name` to match
+(`<new-ip-with-dashes>.nip.io`).
 
 ## Fully local deploy (Moto)
 

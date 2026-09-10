@@ -27,9 +27,10 @@ subnet (no NAT), Elastic IP, SSM access, optional SSH key.
   `destroy-local` (Moto, no credentials)
 - `.pre-commit-config.yaml` — file hygiene + terraform_fmt +
   terraform_validate + actionlint
-- `.github/workflows/ci.yml` — jobs `pre-commit`, `terraform`, `local`,
+- `.github/workflows/ci.yml` — jobs `changes` (paths-filter gate),
+  `pre-commit` (always), `terraform` + `local` (infra/pipeline changes only),
   plus `deploy-prod` (main pushes only: OIDC plan/apply/smoke, needs the
-  other three green; PR runs skip it)
+  checks green-or-skipped; PR runs skip it). Gates fail open.
 
 ## Required skills
 
