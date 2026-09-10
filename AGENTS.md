@@ -44,8 +44,10 @@ Load these before changing infra:
 
 1. Atomic conventional commits (`feat:`, `fix:`, `chore:`, `docs:`, `ci:`).
    One concern per commit; never mix infra + CI + docs.
-2. Always run `pre-commit run` on staged changes and rely on its outcome.
-   If it fails, fix and re-stage — never bypass with `--no-verify`.
+2. Never pre-check manually — no `pre-commit run`, `terraform validate`,
+   or linters by hand before committing. Stage, commit, and rely on the
+   pre-commit hook feedback. If it fails, fix and re-stage — never bypass
+   with `--no-verify`.
 3. Always rely on GitHub Actions outcome after push (`gh run watch`).
    `pre-commit` and `terraform` jobs must both be green.
 4. Never commit state or secrets: no `*.tfstate*`, no `terraform.tfvars`,
