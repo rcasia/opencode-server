@@ -8,14 +8,10 @@ terraform {
     }
   }
 
-  # Local state by default. For team use, uncomment S3 backend:
-  # backend "s3" {
-  #   bucket         = "opencode-terraform-state-ACCOUNT_ID"
-  #   key            = "opencode-server/terraform.tfstate"
-  #   region         = "eu-west-1"
-  #   encrypt        = true
-  #   dynamodb_table = "terraform-locks"
-  # }
+  # S3 backend, completed via backend.hcl (see backend.hcl.example).
+  # Fill backend.hcl after running bootstrap. CI and pre-commit
+  # init with -backend=false, so no bucket is needed there.
+  backend "s3" {}
 }
 
 provider "aws" {

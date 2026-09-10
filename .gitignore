@@ -18,5 +18,8 @@ terraform.rc
 !environments/*.tfvars
 *.tfvars.json
 
+# backend config names the state bucket - local only, like tfvars
+backend.hcl
+
 # cli
 .aws/

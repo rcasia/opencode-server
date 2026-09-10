@@ -1,0 +1,10 @@
+# Backend config for the root stack (S3 state).
+# 1. Deploy bootstrap: terraform -chdir=bootstrap init && terraform -chdir=bootstrap apply
+# 2. cp backend.hcl.example backend.hcl (gitignored)
+# 3. Fill bucket from: terraform -chdir=bootstrap output -raw state_bucket
+# 4. terraform init -migrate-state -backend-config=backend.hcl  (or: make init)
+bucket       = "opencode-staging-tfstate-ACCOUNT_ID"
+key          = "opencode-server/staging/terraform.tfstate"
+region       = "eu-west-1"
+encrypt      = true
+use_lockfile = true
