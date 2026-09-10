@@ -47,7 +47,27 @@ Deploys use OIDC — no long-lived access keys.
    - Variable `TF_STATE_BUCKET` = the state bucket name from step 4.
 6. Restrict `allowed_ssh_cidr` in `environments/prod.tfvars` to your
    IP with `/32` — never deploy prod open to `0.0.0.0/0`.
-7. Dispatch a plan first, review it, then dispatch apply.
+7. Push to `main`; once `ci` is green, `deploy` runs by itself
+   (Moto check, plan, apply).
+
+## GitHub Actions secrets and variables
+
+`deploy` needs two entries. If either is absent, its jobs skip instead
+of failing — check presence with:
+
+```bash
+gh secret list --repo rcasia/opencode-server
+gh variable list --repo rcasia/opencode-server
+```
+
+| Name | Type | How to obtain |
+|---|---|---|
+| `AWS_ROLE_ARN` | Secret | One-time AWS setup above (pipeline steps 1–2): repo Settings → Secrets and variables → Actions → Secrets tab → New repository secret, paste the role ARN. |
+| `TF_STATE_BUCKET` | Variable | After bootstrap apply: `terraform -chdir=bootstrap output -raw state_bucket`. Same Settings page → Variables tab → New repository variable. |
+
+Also required before the first real apply (in code, not in Actions):
+`allowed_ssh_cidr` in `environments/prod.tfvars` must be your IP with
+`/32`, never `0.0.0.0/0`.
 
 Connect:
 ```bash
