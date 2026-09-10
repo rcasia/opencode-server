@@ -148,6 +148,17 @@ make test-boot   # full chain locally: compose up, HTTPS, 401 without creds, 200
 afterwards. It proves installs, config, proxy, and auth — everything except
 Let's Encrypt issuance, which needs the public IP.
 
+Images stay pinned `tag@digest` in `app/compose.yaml`. Dependabot can't
+bump compose pins (its docker updater only reads Dockerfiles), so bump by
+hand every few months:
+
+```bash
+docker pull caddy:2.12-alpine   # then copy the printed digest
+docker pull ghcr.io/anomalyco/opencode:1.19.0
+# update the two image: lines, then prove it:
+make test-boot
+```
+
 State survives deploys: a persistent 10 GB encrypted EBS disk is mounted at
 `/var/lib/docker`, so sessions, config, workspace, images, and certs live
 through instance replacement (see

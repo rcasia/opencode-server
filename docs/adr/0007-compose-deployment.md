@@ -95,6 +95,13 @@ locally), while deleting code instead of adding it.
 - `dependabot.yml` gains the `docker` ecosystem for `/app`.
 - `.github` paths-filter: `app/**` counts as infra (redeploys prod).
 
+## Amendment (2026-09-10, same day)
+
+The Dependabot `docker` ecosystem does **not** read compose files — its
+updater aborts with "No Dockerfiles nor Kubernetes YAML found". The
+`docker` entry was removed; `app/compose.yaml` pins are bumped by hand
+(process in README). Everything else in this record stands.
+
 ## Related Decisions
 
 - ADR-0001 (Caddy + localhost backend — kept, repackaged)
