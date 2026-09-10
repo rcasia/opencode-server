@@ -1,16 +1,33 @@
 version: 2
 updates:
-  # GitHub Actions, checked monthly and batched into a single PR so new
-  # releases bake before we adopt them (dependabot has no per-release
-  # delay option; the monthly cadence plus the human merge gate is the
-  # delay). Actions themselves stay pinned to commit SHAs in the
-  # workflows; dependabot bumps the SHA, never a floating tag.
+  # GitHub Actions: check daily, but only propose versions at least
+  # 21 days old (cooldown). Security updates bypass the cooldown by
+  # design. Actions stay pinned to commit SHAs in the workflows;
+  # dependabot bumps the SHA, never a floating tag, and a human merges.
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: monthly
+      interval: daily
+    cooldown:
+      default-days: 21
     groups:
       actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+
+  # Terraform: same policy for required_version, provider constraints
+  # (versions.tf) and any future external module sources.
+  - package-ecosystem: terraform
+    directory: /
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 21
+    groups:
+      terraform:
         patterns:
           - "*"
     open-pull-requests-limit: 5
