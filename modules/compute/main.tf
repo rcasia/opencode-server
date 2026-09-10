@@ -1,0 +1,57 @@
+# IAM role for SSM (keyless access), optional SSH key, EC2 + EIP.
+
+data "aws_iam_policy_document" "ec2_assume" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "server" {
+  name               = "${var.name_prefix}-ec2-role"
+  assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
+}
+
+resource "aws_iam_role_policy_attachment" "ssm" {
+  role       = aws_iam_role.server.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_instance_profile" "server" {
+  name = "${var.name_prefix}-profile"
+  role = aws_iam_role.server.name
+}
+
+resource "aws_key_pair" "server" {
+  count      = var.ssh_public_key != "" ? 1 : 0
+  key_name   = "${var.name_prefix}-key"
+  public_key = var.ssh_public_key
+}
+
+resource "aws_instance" "server" {
+  ami                    = var.ami_id
+  instance_type          = var.instance_type
+  subnet_id              = var.subnet_id
+  vpc_security_group_ids = [var.security_group_id]
+  iam_instance_profile   = aws_iam_instance_profile.server.name
+  key_name               = var.ssh_public_key != "" ? aws_key_pair.server[0].key_name : null
+  user_data              = templatefile("${path.module}/user_data.sh", { opencode_port = var.opencode_port })
+
+  root_block_device {
+    volume_size = var.root_volume_size
+    volume_type = "gp3"
+    encrypted   = true
+  }
+
+  tags = { Name = "${var.name_prefix}-server" }
+}
+
+resource "aws_eip" "server" {
+  instance = aws_instance.server.id
+  domain   = "vpc"
+
+  tags = { Name = "${var.name_prefix}-eip" }
+}
