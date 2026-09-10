@@ -31,10 +31,15 @@ provider "aws" {
   dynamic "endpoints" {
     for_each = var.aws_endpoint_url != "" ? [var.aws_endpoint_url] : []
     content {
-      ec2 = endpoints.value
-      iam = endpoints.value
-      sts = endpoints.value
-      s3  = endpoints.value
+      ec2        = endpoints.value
+      iam        = endpoints.value
+      sts        = endpoints.value
+      s3         = endpoints.value
+      logs       = endpoints.value
+      cloudwatch = endpoints.value
+      sns        = endpoints.value
+      route53    = endpoints.value
+      ssm        = endpoints.value
     }
   }
 

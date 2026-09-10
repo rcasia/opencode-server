@@ -43,13 +43,16 @@ unzip -q -o /tmp/awscliv2.zip -d /tmp
 /tmp/aws/install --update 2>/dev/null || /tmp/aws/install
 rm -rf /tmp/aws /tmp/awscliv2.zip
 
-# Docker Compose plugin (dnf, fallback to GitHub release)
+# Docker Compose plugin (dnf, fallback to GitHub release for the host arch)
 dnf install -y docker-compose-plugin || {
   # shellcheck disable=SC2034
-  # ($${TAG} renders to ${TAG} via templatefile; shellcheck sees $$ = PID)
+  # (double-dollar escapes render shell expansions; shellcheck sees $$ = PID)
   TAG=$(curl -fsSL https://api.github.com/repos/docker/compose/releases/latest | jq -r .tag_name)
+  # shellcheck disable=SC2034
+  # (same double-dollar escape as TAG above)
+  ARCH=$(uname -m)
   mkdir -p /usr/local/lib/docker/cli-plugins
-  curl -fsSL "https://github.com/docker/compose/releases/download/$${TAG}/docker-compose-linux-x86_64" -o /usr/local/lib/docker/cli-plugins/docker-compose
+  curl -fsSL "https://github.com/docker/compose/releases/download/$${TAG}/docker-compose-linux-$${ARCH}" -o /usr/local/lib/docker/cli-plugins/docker-compose
   chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 }
 docker compose version
@@ -118,6 +121,7 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<CW_EOF
   }
 }
 CW_EOF
-/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json \
+  || echo "WARNING: cloudwatch agent config failed; continuing without log shipping" >&2
 
 echo 'echo "opencode web ready on https://'"${domain_name}"' (Caddy + compose in /opt/opencode)"' > /etc/profile.d/opencode.sh

@@ -1,0 +1,4 @@
+#!/bin/bash
+# Test stub: no systemd in build. Records the call, succeeds.
+echo "systemctl $*" >> /var/log/stub-systemctl.log
+exit 0

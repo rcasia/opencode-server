@@ -1,0 +1,8 @@
+#!/bin/bash
+# Test stub: serves only the SSM get-parameter call used at boot.
+if [[ " $* " == *" get-parameter "* ]]; then
+  echo "boot-test-dummy"
+else
+  echo "stub-aws: unsupported call: $*" >&2
+  exit 1
+fi

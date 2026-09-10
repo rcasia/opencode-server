@@ -22,7 +22,8 @@ subnet (no NAT), Elastic IP, SSM access, optional SSH key.
   (see ADR-0006, ADR-0009)
 - `app/` — prod compose stack (`compose.yaml` with pinned Caddy + opencode
   images, `Caddyfile`, `app.env.example`); local full-chain test via
-  `make test-boot` (see ADR-0007)
+  `make test-boot`, bootstrap test via `make test-bootstrap`
+  (`Dockerfile.boot` + `stubs/`, see ADR-0007)
 - `docs/adr/` — architecture decision records (index + template); add one per
   significant infra/security choice, never rewrite an accepted record
 - `bootstrap/` — one-time stack for the S3 state bucket (local state)
@@ -34,6 +35,7 @@ subnet (no NAT), Elastic IP, SSM access, optional SSH key.
 - `Makefile` — `init` / `fmt` / `validate` / `plan-prod` / `apply-prod` /
   `pre-commit`, plus `local-up` / `local-down` / `plan-local` / `apply-local` /
   `destroy-local` (Moto, no credentials), plus `test-boot` (compose app test)
+  and `test-bootstrap` (executes rendered user_data in AL2023)
 - `.pre-commit-config.yaml` — file hygiene + terraform_fmt +
   terraform_validate + actionlint
 - `.github/workflows/ci.yml` — jobs `changes` (paths-filter gate:

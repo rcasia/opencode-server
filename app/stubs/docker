@@ -1,0 +1,11 @@
+#!/bin/bash
+# Test stub: no Docker daemon in build. Daemon-dependent subcommands are
+# faked (logged); everything else delegates to the real CLI installed by
+# user_data, so `compose version` and `compose config` run for real.
+echo "docker $*" >> /var/log/stub-docker.log
+if [ "${1:-}" = "compose" ] && { [ "${2:-}" = "up" ] || [ "${2:-}" = "ps" ]; }; then
+  exit 0
+fi
+REAL="$(ls /usr/bin/docker /usr/local/bin/docker 2>/dev/null | head -1)"
+[ -n "$REAL" ] || { echo "stub-docker: no real docker binary found" >&2; exit 1; }
+exec "$REAL" "$@"

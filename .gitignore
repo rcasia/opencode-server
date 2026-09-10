@@ -28,5 +28,7 @@ environments/local.auto.tfvars.json
 .aws/
 
 # app runtime env (dummy locally, SSM-backed password on prod) + caddy logs
+# + rendered bootstrap script (test-bootstrap.sh generates it, never commit)
 app/app.env
 app/logs/
+app/.rendered-user-data.sh
