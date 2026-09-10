@@ -1,5 +1,8 @@
 # opencode-server
 
+[![ci](https://github.com/rcasia/opencode-server/actions/workflows/ci.yml/badge.svg)](https://github.com/rcasia/opencode-server/actions/workflows/ci.yml)
+[![deploy](https://github.com/rcasia/opencode-server/actions/workflows/deploy.yml/badge.svg)](https://github.com/rcasia/opencode-server/actions/workflows/deploy.yml)
+
 Terraform infra for an agentic coding EC2 server on AWS (`eu-west-1`, `t3.micro` default).
 
 Provisions: VPC + public subnet + IGW, security group (SSH + opencode 4096), IAM role for SSM, EC2 (AL2023) with Docker + Node 22 + opencode via user-data, Elastic IP.
@@ -25,6 +28,34 @@ git push origin main   # ci must go green; deploy follows on its own
 plus `backend.hcl`). Without `AWS_ROLE_ARN` / `TF_STATE_BUCKET`
 configured, `deploy` fails red — that is the signal to finish the
 one-time setup below.
+
+## CI/CD pipeline
+
+Deploys to prod run automatically, gated only by green checks —
+designed after Fowler's [Continuous Integration](https://martinfowler.com/articles/continuousIntegration.html)
+(see `AGENTS.md` for how each practice maps to this repo).
+
+```text
+push to main
+└─ ci (commit stage, ~1 min, every push)
+     ├─ pre-commit: hygiene + terraform fmt/validate + actionlint
+     ├─ terraform: fmt -check, init -backend=false, validate
+     └─ local: moto plan with zero AWS credentials
+└─ deploy (only on green ci, workflow_run)
+     ├─ local-check: moto plan again, pinned to the exact sha
+     ├─ deploy-prod: OIDC creds → init (S3) → validate → plan → apply
+     └─ smoke test: instance reaches running state
+```
+
+- **Build once, ship that artifact.** `plan -out=tfplan` then `apply tfplan`
+  — the exact reviewed plan is what ships. Kept as the `tfplan-prod`
+  artifact (30 days) for audit.
+- **Moto is the commit-stage double, not a prod clone.** Fast and
+  credential-free, but a mock: the prod `plan` inside `deploy` is the
+  gate that sees the real environment.
+- **Release = merge.** No manual step; anything pushed to `main` must be
+  shippable. Rollback = revert the commit and push — the next green run
+  re-applies the previous state (state is versioned in S3).
 
 ## Pipeline setup (one-time, AWS console)
 
