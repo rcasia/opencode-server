@@ -12,10 +12,19 @@ dnf install -y docker git tmux htop jq unzip tar rsyslog amazon-cloudwatch-agent
 # dying instantly (an instant exit 1 here once bricked two deploys).
 VOL_SFX=$(echo "${data_volume_id}" | tr -d '-')
 DATA_DEV=""
+for _dev in /dev/disk/by-id/*; do
+  case "$(basename "$_dev")" in
+    *"$VOL_SFX"*) DATA_DEV="$(basename "$_dev")"; break ;;
+  esac
+done
 for _ in $(seq 1 60); do
-  DATA_DEV=$(ls /dev/disk/by-id/ | grep -i "$VOL_SFX" | head -1 || true)
   [ -n "$DATA_DEV" ] && break
   sleep 5
+  for _dev in /dev/disk/by-id/*; do
+    case "$(basename "$_dev")" in
+      *"$VOL_SFX"*) DATA_DEV="$(basename "$_dev")"; break ;;
+    esac
+  done
 done
 [ -n "$DATA_DEV" ] || { echo "data volume ${data_volume_id} never attached"; exit 1; }
 DEVICE="/dev/disk/by-id/$DATA_DEV"
@@ -36,6 +45,8 @@ rm -rf /tmp/aws /tmp/awscliv2.zip
 
 # Docker Compose plugin (dnf, fallback to GitHub release)
 dnf install -y docker-compose-plugin || {
+  # shellcheck disable=SC2034
+  # ($${TAG} renders to ${TAG} via templatefile; shellcheck sees $$ = PID)
   TAG=$(curl -fsSL https://api.github.com/repos/docker/compose/releases/latest | jq -r .tag_name)
   mkdir -p /usr/local/lib/docker/cli-plugins
   curl -fsSL "https://github.com/docker/compose/releases/download/$${TAG}/docker-compose-linux-x86_64" -o /usr/local/lib/docker/cli-plugins/docker-compose
