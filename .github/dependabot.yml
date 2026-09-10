@@ -34,7 +34,22 @@ updates:
     commit-message:
       prefix: chore
 
-  # NOTE: no `docker` ecosystem entry on purpose. Dependabot's docker
-  # updater only handles Dockerfiles and Kubernetes manifests — it aborts
-  # on compose-only dirs ("No Dockerfiles nor Kubernetes YAML found").
-  # app/compose.yaml image pins are bumped by hand (see README).
+  # NOTE: no `docker` ecosystem entry on purpose. `docker` only handles
+  # Dockerfiles and Kubernetes manifests; compose files need the separate
+  # `docker-compose` ecosystem below (it aborts otherwise).
+  # app/compose.yaml image pins are tag@digest; dependabot bumps both.
+
+  # Docker Compose: same policy for the pinned app images.
+  - package-ecosystem: docker-compose
+    directory: /app
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 21
+    groups:
+      docker:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
