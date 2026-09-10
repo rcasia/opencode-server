@@ -8,4 +8,6 @@ allowed_ssh_cidr = "88.148.42.240/32"
 ssh_public_key   = "" # optional: "ssh-ed25519 AAAA..."
 root_volume_size = 30
 domain_name      = "54-170-161-9.nip.io" # wildcard DNS for the EIP; Caddy gets Let's Encrypt TLS for it
-alert_email      = ""                    # TODO: your email for intrusion alarms (confirm the SNS subscription email)
+alert_email      = ""                    # set via ALERT_EMAIL Actions variable (TF_VAR_ wins)
+git_user_name    = "rcasia"
+git_user_email   = "31012661+rcasia@users.noreply.github.com"

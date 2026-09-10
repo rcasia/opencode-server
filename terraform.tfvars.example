@@ -8,3 +8,6 @@ root_volume_size            = 30
 opencode_password_parameter = "/opencode/server-password" # SecureString you create via aws ssm put-parameter
 domain_name                 = ""                          # TODO: your domain for Caddy TLS, e.g. "code.example.com"
 alert_email                 = ""                          # TODO: your email for intrusion alarms
+git_user_name               = ""                          # TODO: git identity, e.g. "octocat"
+git_user_email              = ""                          # TODO: e.g. "123+octocat@users.noreply.github.com"
+github_token_parameter      = "/opencode/github-token"    # SecureString PAT (repo contents) via aws ssm put-parameter

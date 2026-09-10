@@ -21,6 +21,9 @@ module "compute" {
   aws_region                  = var.aws_region
   opencode_password_parameter = var.opencode_password_parameter
   domain_name                 = var.domain_name
+  git_user_name               = var.git_user_name
+  git_user_email              = var.git_user_email
+  github_token_parameter      = var.github_token_parameter
 }
 
 module "monitoring" {

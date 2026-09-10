@@ -67,6 +67,9 @@ resource "aws_instance" "server" {
     opencode_password_parameter = var.opencode_password_parameter
     domain_name                 = var.domain_name
     data_volume_id              = aws_ebs_volume.data.id
+    git_user_name               = var.git_user_name
+    git_user_email              = var.git_user_email
+    github_token_parameter      = var.github_token_parameter
     compose_yaml                = file("${path.module}/../../app/compose.yaml")
     caddyfile                   = file("${path.module}/../../app/Caddyfile")
   })

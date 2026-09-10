@@ -16,6 +16,7 @@ trade-offs, and never rewrite an accepted record — supersede it with a new one
 | [0007](0007-compose-deployment.md)  | Containerized deployment via compose | Accepted | 2026-09-10 |
 | [0008](0008-data-volume.md)         | Persistent data volume for deploy-often | Accepted | 2026-09-10 |
 | [0009](0009-uptime-monitoring.md)   | External uptime monitoring | Accepted | 2026-09-10 |
+| [0010](0010-git-auth.md)            | Git identity and auth on the server | Accepted | 2026-09-10 |
 
 ## Creating a New ADR
 

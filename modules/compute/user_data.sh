@@ -82,6 +82,27 @@ cd /opt/opencode
 docker compose up -d
 docker compose ps
 
+# Git identity + auth inside the container (ADR-0010). Idempotent: re-run
+# any time (e.g. after cloning repos or rotating the token). Warns instead
+# of failing boot — git is not boot-critical.
+cat > /usr/local/bin/opencode-git-setup.sh <<'GIT_EOF'
+#!/bin/bash
+# Never prints the token (no set -x here).
+set -euo pipefail
+COMPOSE="docker compose -f /opt/opencode/compose.yaml"
+for _ in $(seq 1 60); do
+  $COMPOSE ps --status running --services 2>/dev/null | grep -q '^opencode$' && break
+  sleep 5
+done
+GH_PAT=$(aws ssm get-parameter --name "${github_token_parameter}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
+[ -n "${git_user_name}" ] && $COMPOSE exec -T opencode git config --global user.name "${git_user_name}" || true
+[ -n "${git_user_email}" ] && $COMPOSE exec -T opencode git config --global user.email "${git_user_email}" || true
+$COMPOSE exec -T opencode git config --global credential.helper store
+printf 'https://x-access-token:%s@github.com\n' "$GH_PAT" | $COMPOSE exec -T -i opencode sh -c 'cat > /root/.git-credentials && chmod 600 /root/.git-credentials' # pragma: allowlist secret -- %s placeholder, token arrives via SSM at runtime
+GIT_EOF
+chmod +x /usr/local/bin/opencode-git-setup.sh
+/usr/local/bin/opencode-git-setup.sh || echo "WARNING: git setup failed; re-run /usr/local/bin/opencode-git-setup.sh" >&2
+
 # Intrusion visibility (ADR-0006): ship Caddy access logs + sshd syslog to
 # CloudWatch (alarms in modules/monitoring).
 systemctl enable --now rsyslog

@@ -195,6 +195,30 @@ Uptime is watched separately: Route 53 probes the unauthenticated
 `/ping` every 30s and pages after 3 failures (~$0.50/mo). Probes never
 touch opencode, so they stay out of the login-failure metric.
 
+## Git on the server (commits + push)
+
+Identity comes from `git_user_name` / `git_user_email` (already set in
+`environments/prod.tfvars`). Auth needs a Personal Access Token:
+
+```bash
+# 1. GitHub → Settings → Developer settings → Personal access tokens →
+#    Fine-grained token, contents read/write on your repos, no admin.
+# 2. store it (shown once — copy immediately)
+aws ssm put-parameter --region eu-west-1 --name /opencode/github-token \
+  --type SecureString --value 'YOUR-TOKEN'
+```
+
+The boot helper (`/usr/local/bin/opencode-git-setup.sh`) fetches it and
+configures the container automatically on next deploy. To apply without a
+deploy, or after rotating the token, re-run it on the host:
+
+```bash
+aws ssm start-session --region eu-west-1 --target $(terraform output -raw instance_id)
+/usr/local/bin/opencode-git-setup.sh
+```
+
+Rationale: [`docs/adr/0010-git-auth.md`](docs/adr/0010-git-auth.md).
+
 ## Fully local deploy (Moto)
 
 Docker running, no AWS credentials, no pip install. Everything runs

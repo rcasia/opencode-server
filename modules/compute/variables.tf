@@ -41,6 +41,24 @@ variable "deployed_version" {
   default     = "unreleased"
 }
 
+variable "git_user_name" {
+  description = "git identity for commits made on the server"
+  type        = string
+  default     = ""
+}
+
+variable "git_user_email" {
+  description = "git email for commits made on the server"
+  type        = string
+  default     = ""
+}
+
+variable "github_token_parameter" {
+  description = "SSM SecureString parameter holding a GitHub PAT for git auth"
+  type        = string
+  default     = "/opencode/github-token"
+}
+
 variable "ssh_public_key" {
   description = "Optional SSH public key. If empty, use SSM Session Manager."
   type        = string
