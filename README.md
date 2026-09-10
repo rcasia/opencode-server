@@ -42,8 +42,8 @@ push to main (PRs run the checks only, never deploy)
      ├─ terraform: fmt -check, init -backend=false, validate
      ├─ local: moto plan with zero AWS credentials
      └─ deploy-prod (main pushes only, needs the three jobs above green)
-          ├─ OIDC creds → init (S3) → validate → plan → apply
-          └─ smoke test: instance reaches running state
+          ├─ OIDC creds → init (S3) → validate → plan
+          └─ apply + smoke test, only when the plan has changes
 ```
 
 - **Build once, ship that artifact.** `plan -out=tfplan` then `apply tfplan`
