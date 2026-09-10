@@ -197,8 +197,16 @@ jobs:
         if: steps.plan.outputs.exitcode == '2'
         run: terraform apply -input=false tfplan
 
-      - name: Smoke test (instance reaches running)
+      - name: Smoke test (site answers through TLS + auth gate)
         if: steps.plan.outputs.exitcode == '2'
         run: |
           terraform output
           aws ec2 wait instance-running --instance-ids "$(terraform output -raw instance_id)" --region "${{ env.AWS_REGION }}"
+          URL="$(terraform output -raw opencode_url)"
+          case "$URL" in https://*) ;; *) echo "no public URL ($URL), skipping HTTP check"; exit 0;; esac
+          for _ in $(seq 1 30); do
+            CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$URL" || true)"
+            if [ "$CODE" = "401" ]; then echo "site up: 401 auth gate at $URL"; exit 0; fi
+            sleep 20
+          done
+          echo "site never returned 401 (last: $CODE)"; exit 1
