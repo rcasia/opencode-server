@@ -110,3 +110,27 @@ pre-commit run --all-files
 gh run list --repo rcasia/opencode-server --limit 5
 gh run watch <run-id> --repo rcasia/opencode-server
 ```
+
+## Continuous Integration
+
+Reference when in doubt:
+https://martinfowler.com/articles/continuousIntegration.html
+
+How its practices map to this repo:
+
+- Single mainline, small frequent commits. Work directly on `main`;
+  trunk lives one push away from deployable at all times.
+- Every push builds. `ci` runs on every push to `main`: hygiene,
+  `fmt -check`, `validate`, and a Moto `plan` (the self-testing build).
+- Red main stops the line. A failing `ci` run outranks new work: fix
+  immediately, reverting the faulty commit first if the cause isn't
+  obvious. Never push on top of red.
+- Keep the build fast. The suite is ~1 minute; keep it there. If a check
+  gets slow, split it into a later pipeline stage, never into a slower
+  commit gate.
+- Moto is a mock, not a prod clone. It catches config errors, not
+  real-AWS behavior. The prod `plan` artifact inside `deploy` is the
+  gate that sees the real environment — review it before `apply`.
+- Automate deployment, decide release. The pipeline builds the plan and
+  can apply it, but `apply` is a manual dispatch: shipping to prod stays
+  a human decision, never a side effect of pushing.
