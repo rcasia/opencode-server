@@ -13,6 +13,7 @@ trade-offs, and never rewrite an accepted record — supersede it with a new one
 | [0004](0004-ssm-password.md)      | opencode password from SSM SecureString | Accepted | 2026-09-10 |
 | [0005](0005-nipio-domain.md)        | nip.io generated domain instead of user-owned domain | Accepted | 2026-09-10 |
 | [0006](0006-intrusion-alerting.md)  | Intrusion alerting via CloudWatch + SNS | Accepted | 2026-09-10 |
+| [0007](0007-compose-deployment.md)  | Containerized deployment via compose | Accepted | 2026-09-10 |
 
 ## Creating a New ADR
 

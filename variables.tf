@@ -64,12 +64,6 @@ variable "root_volume_size" {
   default     = 30
 }
 
-variable "opencode_port" {
-  description = "Port for opencode web / serve"
-  type        = number
-  default     = 4096
-}
-
 variable "opencode_password_parameter" {
   description = "SSM SecureString parameter holding the opencode web password"
   type        = string

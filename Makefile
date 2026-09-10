@@ -1,4 +1,4 @@
-.PHONY: help init fmt validate plan-prod apply-prod destroy-prod pre-commit local-up local-down plan-local apply-local destroy-local
+.PHONY: help init fmt validate plan-prod apply-prod destroy-prod pre-commit local-up local-down plan-local apply-local destroy-local test-boot
 
 TF_VARS := environments/prod.tfvars
 BACKEND_CFG := $(wildcard backend.hcl)
@@ -13,6 +13,7 @@ MOTO_ENDPOINT := http://localhost:$(MOTO_PORT)
 help:
 	@echo "Targets: init | fmt | validate | plan-prod | apply-prod | destroy-prod | pre-commit"
 	@echo "         local-up | local-down | plan-local | apply-local | destroy-local"
+	@echo "         test-boot (full-chain local test of app/ via compose, dummy env)"
 	@echo "Prod deploys run ONLY via the pipeline; make plan-prod is a pre-flight plan."
 
 init:
@@ -65,3 +66,6 @@ apply-local:
 
 destroy-local:
 	terraform destroy -var-file=$(LOCAL_VARS)
+
+test-boot:
+	./scripts/test-boot.sh

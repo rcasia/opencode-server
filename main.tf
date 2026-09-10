@@ -16,7 +16,6 @@ module "compute" {
   security_group_id           = module.network.security_group_id
   ssh_public_key              = var.ssh_public_key
   root_volume_size            = var.root_volume_size
-  opencode_port               = var.opencode_port
   aws_region                  = var.aws_region
   opencode_password_parameter = var.opencode_password_parameter
   domain_name                 = var.domain_name

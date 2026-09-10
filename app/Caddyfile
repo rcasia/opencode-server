@@ -1,0 +1,13 @@
+# Caddy reverse proxy (ADR-0001, ADR-0007). {$DOMAIN} comes from the
+# container environment (app.env). `localhost` gets a local CA cert,
+# public names get automatic Let's Encrypt TLS.
+{$DOMAIN} {
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 10mb
+			roll_keep 3
+		}
+		format json
+	}
+	reverse_proxy opencode:4096
+}

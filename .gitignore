@@ -26,3 +26,7 @@ environments/local.auto.tfvars.json
 
 # cli
 .aws/
+
+# app runtime env (dummy locally, SSM-backed password on prod) + caddy logs
+app/app.env
+app/logs/

@@ -12,4 +12,3 @@ instance_type     = "t3.micro"
 allowed_ssh_cidr  = "0.0.0.0/0"
 ssh_public_key    = ""
 root_volume_size  = 30
-opencode_port     = 4096

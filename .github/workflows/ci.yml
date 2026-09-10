@@ -39,6 +39,7 @@ jobs:
               - '**/*.sh'
               - '**/*.tfvars'
               - '.terraform.lock.hcl'
+              - 'app/**'
             pipeline:
               - '.github/**'
               - 'Makefile'
@@ -47,6 +48,7 @@ jobs:
               - 'environments/local.tfvars'
               - '.pre-commit-config.yaml'
               - '.secrets.baseline'
+              - 'scripts/**'
 
   pre-commit:
     runs-on: ubuntu-latest

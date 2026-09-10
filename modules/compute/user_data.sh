@@ -1,93 +1,52 @@
 #!/bin/bash
 set -eux
 
-# Agentic coding server bootstrap: Docker + Node 22 + opencode
+# Slim bootstrap (ADR-0007): Docker + files + compose up. No app installs at
+# boot — Caddy and opencode ship as pinned images (app/compose.yaml).
 dnf update -y
-dnf install -y docker git tmux htop jq unzip tar
+dnf install -y docker git tmux htop jq unzip tar rsyslog amazon-cloudwatch-agent
 
 systemctl enable --now docker
 usermod -aG docker ec2-user || true
 
-# Node 22 LTS
-curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
-dnf install -y nodejs
-node --version
-npm --version
-
-# opencode (https://opencode.ai)
-curl -fsSL https://opencode.ai/install | bash
-mv /root/.opencode/bin/opencode /usr/local/bin/opencode 2>/dev/null || true
-ln -sf /usr/local/bin/opencode /usr/bin/opencode 2>/dev/null || true
-chmod +x /usr/local/bin/opencode 2>/dev/null || true
-
-# AWS CLI v2 (for fetching the opencode password from SSM)
+# AWS CLI v2 (SSM password fetch below)
 curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
 unzip -q -o /tmp/awscliv2.zip -d /tmp
 /tmp/aws/install --update 2>/dev/null || /tmp/aws/install
 rm -rf /tmp/aws /tmp/awscliv2.zip
 
-# Fetch OPENCODE_SERVER_PASSWORD from SSM into a root-only env file.
-# See ADR-0001: password never touches the repo, tfvars, or state.
-cat > /usr/local/bin/opencode-web-env.sh <<ENV_EOF
-#!/bin/bash
-set -euo pipefail
-VALUE=\$(aws ssm get-parameter --name "${opencode_password_parameter}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
-printf 'OPENCODE_SERVER_PASSWORD=%s\n' "\$VALUE" > /run/opencode-web.env
-chmod 600 /run/opencode-web.env
-ENV_EOF
-chmod 700 /usr/local/bin/opencode-web-env.sh
-
-# opencode web as a systemd service, bound to localhost only.
-# Public traffic arrives via Caddy (TLS) on 80/443; see ADR-0001.
-cat > /etc/systemd/system/opencode-web.service <<UNIT_EOF
-[Unit]
-Description=opencode web UI
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=ec2-user
-WorkingDirectory=/home/ec2-user
-ExecStartPre=/usr/local/bin/opencode-web-env.sh
-EnvironmentFile=/run/opencode-web.env
-Environment=BROWSER=true
-ExecStart=/usr/local/bin/opencode web --hostname 127.0.0.1 --port ${opencode_port}
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-UNIT_EOF
-systemctl daemon-reload
-systemctl enable --now opencode-web.service
-
-# Caddy reverse proxy with automatic Let's Encrypt TLS (ADR-0001).
-dnf install -y 'dnf-command(copr)'
-dnf copr enable -y @caddy/caddy
-dnf install -y caddy
-if [ -n "${domain_name}" ]; then
-  cat > /etc/caddy/Caddyfile <<CADDY_EOF
-{
-	log access.log {
-		output file /var/log/caddy/access.log {
-			roll_size 10mb
-			roll_keep 3
-		}
-		format json
-	}
+# Docker Compose plugin (dnf, fallback to GitHub release)
+dnf install -y docker-compose-plugin || {
+  TAG=$(curl -fsSL https://api.github.com/repos/docker/compose/releases/latest | jq -r .tag_name)
+  mkdir -p /usr/local/lib/docker/cli-plugins
+  curl -fsSL "https://github.com/docker/compose/releases/download/$${TAG}/docker-compose-linux-x86_64" -o /usr/local/lib/docker/cli-plugins/docker-compose
+  chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 }
-${domain_name} {
-	reverse_proxy 127.0.0.1:${opencode_port}
-}
+docker compose version
+
+# App stack (single source of truth: app/ in the repo, via templatefile)
+mkdir -p /opt/opencode/logs
+cat > /opt/opencode/compose.yaml <<'COMPOSE_EOF'
+${compose_yaml}
+COMPOSE_EOF
+cat > /opt/opencode/Caddyfile <<'CADDY_EOF'
+${caddyfile}
 CADDY_EOF
-  mkdir -p /var/log/caddy
-  systemctl enable --now caddy
-fi
+cat > /opt/opencode/app.env <<ENV_EOF
+DOMAIN=${domain_name}
+ENV_EOF
+
+# OPENCODE_SERVER_PASSWORD from SSM (ADR-0004): never in repo/state.
+VALUE=$(aws ssm get-parameter --name "${opencode_password_parameter}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
+printf 'OPENCODE_SERVER_PASSWORD=%s\n' "$VALUE" >> /opt/opencode/app.env
+chmod 600 /opt/opencode/app.env
+
+cd /opt/opencode
+docker compose up -d
+docker compose ps
 
 # Intrusion visibility (ADR-0006): ship Caddy access logs + sshd syslog to
-# CloudWatch; metric filters + alarms live in modules/monitoring.
-dnf install -y rsyslog amazon-cloudwatch-agent
+# CloudWatch (alarms in modules/monitoring).
 systemctl enable --now rsyslog
 cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<CW_EOF
 {
@@ -100,7 +59,7 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<CW_EOF
       "files": {
         "collect_list": [
           {
-            "file_path": "/var/log/caddy/access.log",
+            "file_path": "/opt/opencode/logs/access.log",
             "log_group_name": "${name_prefix}-caddy",
             "log_stream_name": "{instance_id}"
           },
@@ -117,6 +76,4 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<CW_EOF
 CW_EOF
 /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
 
-# Persist port info for motd
-echo "OPENCODE_PORT=${opencode_port}" > /etc/opencode-server
-echo 'echo "opencode web ready on https://'"${domain_name}"' (via Caddy) and http://127.0.0.1:$(cat /etc/opencode-server | cut -d= -f2) locally"' >> /etc/profile.d/opencode.sh
+echo 'echo "opencode web ready on https://'"${domain_name}"' (Caddy + compose in /opt/opencode)"' > /etc/profile.d/opencode.sh

@@ -1,0 +1,40 @@
+# Production app stack (ADR-0007). Runs unmodified on the EC2 host
+# (/opt/opencode, app.env written by user_data) and locally via
+# `make test-boot` (app.env holds dummy values there).
+# Images are pinned tag@digest; Dependabot (docker ecosystem) proposes bumps.
+services:
+  caddy:
+    image: caddy:2.11-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+      - ./logs:/var/log/caddy
+    env_file:
+      - app.env
+
+  opencode:
+    image: ghcr.io/anomalyco/opencode:1.18.30@sha256:412b37a894bb937a0d5d6a1860789b9fd7d34a109334bec98a3f6ecf812bb442
+    command: ["web", "--hostname", "0.0.0.0", "--port", "4096"]
+    restart: unless-stopped
+    working_dir: /workspace
+    volumes:
+      - opencode-workspace:/workspace
+      - opencode-config:/root/.config/opencode
+      - opencode-data:/root/.local/share/opencode
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      BROWSER: "true"
+    env_file:
+      - app.env
+
+volumes:
+  caddy-data:
+  caddy-config:
+  opencode-workspace:
+  opencode-config:
+  opencode-data:

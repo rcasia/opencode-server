@@ -134,6 +134,20 @@ After boot, open `https://54-170-161-9.nip.io` on your phone and log in as
 `opencode`. If the EIP ever changes, update `domain_name` to match
 (`<new-ip-with-dashes>.nip.io`).
 
+## App stack (compose, testable locally)
+
+Caddy + opencode run as containers from `app/compose.yaml` (images pinned
+`tag@digest`, bumped by Dependabot). Rationale:
+[`docs/adr/0007-compose-deployment.md`](docs/adr/0007-compose-deployment.md).
+
+```bash
+make test-boot   # full chain locally: compose up, HTTPS, 401 without creds, 200 with
+```
+
+`test-boot` uses dummy env (never committed) and tears everything down
+afterwards. It proves installs, config, proxy, and auth — everything except
+Let's Encrypt issuance, which needs the public IP.
+
 ## Intrusion alerts
 
 Port 443 is public by design, so scanners will knock. Caddy access logs and

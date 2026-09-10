@@ -63,10 +63,11 @@ resource "aws_instance" "server" {
   user_data_replace_on_change = true
   user_data = templatefile("${path.module}/user_data.sh", {
     name_prefix                 = var.name_prefix
-    opencode_port               = var.opencode_port
     aws_region                  = var.aws_region
     opencode_password_parameter = var.opencode_password_parameter
     domain_name                 = var.domain_name
+    compose_yaml                = file("${path.module}/../../app/compose.yaml")
+    caddyfile                   = file("${path.module}/../../app/Caddyfile")
   })
 
   root_block_device {

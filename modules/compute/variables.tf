@@ -37,12 +37,6 @@ variable "root_volume_size" {
   default     = 30
 }
 
-variable "opencode_port" {
-  description = "Port for opencode web / serve"
-  type        = number
-  default     = 4096
-}
-
 variable "aws_region" {
   description = "AWS region (used to fetch the opencode password from SSM)"
   type        = string
