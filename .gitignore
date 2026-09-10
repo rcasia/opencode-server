@@ -21,5 +21,12 @@ terraform.rc
 # backend config names the state bucket - local only, like tfvars
 backend.hcl
 
+# moto server runtime files (make local-up)
+.moto.pid
+.moto.log
+
+# generated moto AMI id (make local-up writes it)
+environments/local.auto.tfvars.json
+
 # cli
 .aws/
