@@ -22,8 +22,9 @@ git push origin main   # ci must go green; deploy follows on its own
 ```
 
 `make plan-prod` works as a local pre-flight plan (needs credentials
-plus `backend.hcl`). Until `AWS_ROLE_ARN` is configured, deploy jobs
-skip instead of failing.
+plus `backend.hcl`). Without `AWS_ROLE_ARN` / `TF_STATE_BUCKET`
+configured, `deploy` fails red — that is the signal to finish the
+one-time setup below.
 
 ## Pipeline setup (one-time, AWS console)
 
@@ -52,8 +53,9 @@ Deploys use OIDC — no long-lived access keys.
 
 ## GitHub Actions secrets and variables
 
-`deploy` needs two entries. If either is absent, its jobs skip instead
-of failing — check presence with:
+`deploy` needs two entries. If either is absent the run fails red —
+by design, so missing config is visible instead of silent. Check
+presence with:
 
 ```bash
 gh secret list --repo rcasia/opencode-server

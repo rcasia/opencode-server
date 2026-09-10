@@ -22,7 +22,8 @@ subnet (no NAT), Elastic IP, SSM access, optional SSH key.
 - `Makefile` — `init` / `fmt` / `validate` / `plan-prod` / `apply-prod` /
   `pre-commit`, plus `local-up` / `local-down` / `plan-local` / `apply-local` /
   `destroy-local` (Moto, no credentials)
-- `.pre-commit-config.yaml` — file hygiene + terraform_fmt + terraform_validate
+- `.pre-commit-config.yaml` — file hygiene + terraform_fmt +
+  terraform_validate + actionlint
 - `.github/workflows/ci.yml` — jobs `pre-commit`, `terraform`, `local`
 - `.github/workflows/deploy.yml` — manual prod plan/apply (OIDC, pipeline-only,
   gated by a Moto check first)
