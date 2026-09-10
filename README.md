@@ -11,32 +11,43 @@ Provisions: VPC + public subnet + IGW, security group (SSH + opencode 4096), IAM
 - `modules/compute` — IAM role (SSM), optional key pair, EC2, EIP
 - `bootstrap/` — one-time stack creating the S3 state bucket
 
-## Usage (local = staging)
+## Usage (staging deploys via pipeline only)
 
-Local runs deploy to staging via `environments/staging.tfvars`:
-
-```bash
-make plan-staging   # init + fmt + validate + plan staging
-make apply-staging  # init + apply staging
-```
-
-Or raw terraform:
+Staging deploys run ONLY through the `deploy` workflow. Never
+`terraform apply` against real AWS from your laptop; local runs target
+the Moto mock (see below).
 
 ```bash
-terraform init
-terraform fmt -recursive
-terraform validate
-terraform plan -var-file=environments/staging.tfvars
-terraform apply -var-file=environments/staging.tfvars
+gh workflow run deploy --ref main -f action=plan    # plan only
+gh workflow run deploy --ref main -f action=apply   # plan + apply
 ```
 
-Custom one-off vars (gitignored):
+`make plan-staging` works as a local pre-flight plan (needs credentials
+plus `backend.hcl`), but apply happens in GitHub Actions with OIDC.
 
-```bash
-cp terraform.tfvars.example terraform.tfvars
-# edit allowed_ssh_cidr to YOUR_IP/32
-terraform plan -var-file=terraform.tfvars
-```
+## Pipeline setup (one-time, AWS console)
+
+Deploys use OIDC — no long-lived access keys.
+
+1. IAM → Identity providers → Add OIDC provider: URL
+   `https://token.actions.githubusercontent.com`, audience
+   `sts.amazonaws.com`.
+2. IAM → Roles → Create role → Web identity: pick that provider, audience
+   `sts.amazonaws.com`, condition `StringLike`
+   `token.actions.githubusercontent.com:sub` =
+   `repo:rcasia/opencode-server:*`. Name it `opencode-server-deploy`.
+3. Attach a policy covering: EC2/VPC/SG/EIP/key-pair/volume management,
+   IAM roles + instance profiles + key pairs + attaching the
+   `AmazonSSMManagedInstanceCore` policy, and S3 access to the state
+   bucket (`s3:ListBucket` on the bucket, object RW on
+   `opencode-server/*`).
+4. Deploy `bootstrap/` once (creates the state bucket) and note its name.
+5. GitHub → repo Settings → Secrets and variables → Actions:
+   - Secret `AWS_ROLE_ARN` = the role ARN from step 2.
+   - Variable `TF_STATE_BUCKET` = the state bucket name from step 4.
+6. Restrict `allowed_ssh_cidr` in `environments/staging.tfvars` to your
+   IP with `/32` — never deploy staging open to `0.0.0.0/0`.
+7. Dispatch a plan first, review it, then dispatch apply.
 
 Connect:
 ```bash

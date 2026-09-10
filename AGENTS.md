@@ -23,7 +23,8 @@ subnet (no NAT), Elastic IP, SSM access, optional SSH key.
   `pre-commit`, plus `local-up` / `local-down` / `plan-local` / `apply-local` /
   `destroy-local` (Moto, no credentials)
 - `.pre-commit-config.yaml` — file hygiene + terraform_fmt + terraform_validate
-- `.github/workflows/ci.yml` — jobs `pre-commit` and `terraform`
+- `.github/workflows/ci.yml` — jobs `pre-commit`, `terraform`, `local`
+- `.github/workflows/deploy.yml` — manual staging plan/apply (OIDC, pipeline-only)
 
 ## Required skills
 
@@ -52,8 +53,10 @@ Load these before changing infra:
    then `init -migrate-state -backend-config=backend.hcl` once.
 5. `terraform fmt -recursive` and `terraform validate` must pass locally
    before push. CI runs `fmt -check`, `init -backend=false`, `validate`.
-6. Plan before apply. Never `apply -auto-approve` locally; review the plan.
-   Never `destroy` without explicit user confirmation.
+6. Pipeline-only deploys to real AWS: `terraform apply` with real
+   credentials happens ONLY via the `deploy` workflow (dispatch `plan`
+   first, review, then `apply`). Local applies target Moto only. Never
+   `destroy` without explicit user confirmation.
 7. Security defaults: restrict `allowed_ssh_cidr` to `YOUR_IP/32`,
    keep EBS encrypted, keep provider pin `~> 5.0`, keep default tags
    (`Project`, `Environment`, `ManagedBy`).
@@ -65,12 +68,16 @@ Load these before changing infra:
 
 ## Workflows
 
-Local = staging. Deploy from your laptop to staging:
+Local = staging. Staging deploys run ONLY via the pipeline:
 
 ```bash
-make plan-staging
-make apply-staging
+gh workflow run deploy --ref main -f action=plan
+gh workflow run deploy --ref main -f action=apply
 ```
+
+`make plan-staging` is a local pre-flight plan only. Secrets: `AWS_ROLE_ARN`
+(secret, OIDC role for `repo:rcasia/opencode-server:*`), `TF_STATE_BUCKET`
+(variable). No long-lived AWS keys anywhere.
 
 ```bash
 cp terraform.tfvars.example terraform.tfvars  # set allowed_ssh_cidr
