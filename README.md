@@ -1,7 +1,6 @@
 # opencode-server
 
 [![ci](https://github.com/rcasia/opencode-server/actions/workflows/ci.yml/badge.svg)](https://github.com/rcasia/opencode-server/actions/workflows/ci.yml)
-[![deploy](https://github.com/rcasia/opencode-server/actions/workflows/deploy.yml/badge.svg)](https://github.com/rcasia/opencode-server/actions/workflows/deploy.yml)
 
 Terraform infra for an agentic coding EC2 server on AWS (`eu-west-1`, `t3.micro` default).
 
@@ -16,17 +15,18 @@ Provisions: VPC + public subnet + IGW, security group (SSH + opencode 4096), IAM
 
 ## Usage (prod deploys automatically)
 
-Push to `main` → green `ci` → `deploy` runs automatically (Moto check,
-plan, apply). There is no manual step and no local apply against real
-AWS; local runs target the Moto mock (see below).
+Push to `main` → `ci` checks, then the `deploy-prod` job in the same
+run ships prod automatically (plan, apply, smoke test). There is no
+manual step and no local apply against real AWS; local runs target
+the Moto mock (see below).
 
 ```bash
-git push origin main   # ci must go green; deploy follows on its own
+git push origin main   # checks then deploy-prod, all in the ci run
 ```
 
 `make plan-prod` works as a local pre-flight plan (needs credentials
 plus `backend.hcl`). Without `AWS_ROLE_ARN` / `TF_STATE_BUCKET`
-configured, `deploy` fails red — that is the signal to finish the
+configured, `deploy-prod` fails red — that is the signal to finish the
 one-time setup below.
 
 ## CI/CD pipeline
@@ -36,23 +36,22 @@ designed after Fowler's [Continuous Integration](https://martinfowler.com/articl
 (see `AGENTS.md` for how each practice maps to this repo).
 
 ```text
-push to main
-└─ ci (commit stage, ~1 min, every push)
+push to main (PRs run the checks only, never deploy)
+└─ ci, one workflow graph
      ├─ pre-commit: hygiene + terraform fmt/validate + actionlint
      ├─ terraform: fmt -check, init -backend=false, validate
-     └─ local: moto plan with zero AWS credentials
-└─ deploy (only on green ci, workflow_run)
-     ├─ local-check: moto plan again, pinned to the exact sha
-     ├─ deploy-prod: OIDC creds → init (S3) → validate → plan → apply
-     └─ smoke test: instance reaches running state
+     ├─ local: moto plan with zero AWS credentials
+     └─ deploy-prod (main pushes only, needs the three jobs above green)
+          ├─ OIDC creds → init (S3) → validate → plan → apply
+          └─ smoke test: instance reaches running state
 ```
 
 - **Build once, ship that artifact.** `plan -out=tfplan` then `apply tfplan`
   — the exact reviewed plan is what ships. Kept as the `tfplan-prod`
   artifact (30 days) for audit.
 - **Moto is the commit-stage double, not a prod clone.** Fast and
-  credential-free, but a mock: the prod `plan` inside `deploy` is the
-  gate that sees the real environment.
+  credential-free, but a mock: the prod `plan` in the `deploy-prod` job
+  is the gate that sees the real environment.
 - **Release = merge.** No manual step; anything pushed to `main` must be
   shippable. Rollback = revert the commit and push — the next green run
   re-applies the previous state (state is versioned in S3).
@@ -79,12 +78,12 @@ Deploys use OIDC — no long-lived access keys.
    - Variable `TF_STATE_BUCKET` = the state bucket name from step 4.
 6. Restrict `allowed_ssh_cidr` in `environments/prod.tfvars` to your
    IP with `/32` — never deploy prod open to `0.0.0.0/0`.
-7. Push to `main`; once `ci` is green, `deploy` runs by itself
-   (Moto check, plan, apply).
+7. Push to `main`; the `deploy-prod` job applies automatically
+   (plan, apply, smoke test).
 
 ## GitHub Actions secrets and variables
 
-`deploy` needs two entries. If either is absent the run fails red —
+`deploy-prod` needs two entries. If either is absent the run fails red —
 by design, so missing config is visible instead of silent. Check
 presence with:
 

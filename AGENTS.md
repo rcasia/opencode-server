@@ -24,9 +24,9 @@ subnet (no NAT), Elastic IP, SSM access, optional SSH key.
   `destroy-local` (Moto, no credentials)
 - `.pre-commit-config.yaml` — file hygiene + terraform_fmt +
   terraform_validate + actionlint
-- `.github/workflows/ci.yml` — jobs `pre-commit`, `terraform`, `local`
-- `.github/workflows/deploy.yml` — manual prod plan/apply (OIDC, pipeline-only,
-  gated by a Moto check first)
+- `.github/workflows/ci.yml` — jobs `pre-commit`, `terraform`, `local`,
+  plus `deploy-prod` (main pushes only: OIDC plan/apply/smoke, needs the
+  other three green; PR runs skip it)
 
 ## Required skills
 
@@ -58,12 +58,12 @@ Load these before changing infra:
    then `init -migrate-state -backend-config=backend.hcl` once.
 5. `terraform fmt -recursive` and `terraform validate` must pass locally
    before push. CI runs `fmt -check`, `init -backend=false`, `validate`.
-6. Pipeline-only deploys to real AWS: pushes to `main` deploy prod
-   automatically once `ci` is green (`deploy`: Moto check, plan, apply).
-   Local applies target Moto only. Never `destroy` without explicit
-   user confirmation.
+6. Pipeline-only deploys to real AWS: pushes to `main` ship prod via
+   the `deploy-prod` job once `pre-commit`, `terraform` and `local`
+   are green. Local applies target Moto only. Never `destroy` without
+   explicit user confirmation.
 7. Security defaults: restrict `allowed_ssh_cidr` to `YOUR_IP/32`,
-   keep EBS encrypted, keep provider pin `~> 5.0`, keep default tags
+   keep EBS encrypted, keep provider pin `~> 6.0`, keep default tags
    (`Project`, `Environment`, `ManagedBy`).
 8. Cheap by design: single AZ public subnet, no NAT gateway, EIP attached
    to the instance. Call out any change that adds recurring cost.
@@ -74,7 +74,8 @@ Load these before changing infra:
 ## Workflows
 
 Local runs target Moto only; pushing to `main` ships prod automatically
-once `ci` is green (deploy: Moto check, plan, apply — no manual step):
+once the check jobs are green (`deploy-prod`: plan, apply, smoke —
+no manual step, PR runs skip it):
 
 ```bash
 git push origin main
@@ -124,16 +125,17 @@ How its practices map to this repo:
 - Single mainline, small frequent commits. Work directly on `main`;
   trunk lives one push away from deployable at all times.
 - Every push builds. `ci` runs on every push to `main`: hygiene,
-  `fmt -check`, `validate`, and a Moto `plan` (the self-testing build).
+  `fmt -check`, `validate`, a Moto `plan`, and on main pushes the
+  `deploy-prod` job (the self-testing build). PR runs stop after the checks.
 - Red main stops the line. A failing `ci` run outranks new work: fix
   immediately, reverting the faulty commit first if the cause isn't
   obvious. Never push on top of red.
-- Keep the build fast. The suite is ~1 minute; keep it there. If a check
-  gets slow, split it into a later pipeline stage, never into a slower
-  commit gate.
+- Keep the build fast. The checks are ~1 minute; keep them there. The
+  slower AWS work lives in `deploy-prod`, which runs only on main pushes —
+  never gate a commit on it, never push anything you wouldn't release.
 - Moto is a mock, not a prod clone. It catches config errors, not
-  real-AWS behavior. The prod `plan` artifact inside `deploy` is the
+  real-AWS behavior. The prod `plan` artifact inside `deploy-prod` is the
   gate that sees the real environment — review it before `apply`.
 - Automate deployment, gate on green. Merging to `main` ships prod
-  automatically once `ci` passes — never push anything you wouldn't
+  automatically once the check jobs pass — never push anything you wouldn't
   release.
