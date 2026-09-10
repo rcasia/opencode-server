@@ -47,10 +47,10 @@ aws ssm start-session --region eu-west-1 --target $(terraform output -raw instan
 
 ## Fully local deploy (Moto)
 
-No AWS credentials needed. Everything runs against a Moto mock:
+Docker running, no AWS credentials, no pip install. Everything runs
+against a Moto mock container:
 
 ```bash
-pip install 'moto[server]'
 make local-up      # start mock + state bucket + register placeholder AMI
 make plan-local    # init + fmt + validate + plan against the mock
 make apply-local   # deploy to the mock

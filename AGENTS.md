@@ -81,10 +81,9 @@ terraform plan
 terraform apply
 ```
 
-Fully local (Moto, no AWS credentials):
+Fully local (Moto container, no AWS credentials):
 
 ```bash
-pip install 'moto[server]'
 make local-up && make plan-local && make apply-local
 make destroy-local && make local-down
 ```
