@@ -6,13 +6,15 @@ subnet (no NAT), Elastic IP, SSM access, optional SSH key.
 
 ## Structure
 
-- `versions.tf` — terraform + AWS provider pins, default tags
-- `variables.tf` — region, project, environment, instance_type,
-  allowed_ssh_cidr, ssh_public_key, root_volume_size, opencode_port
-- `main.tf` — VPC, subnet, IGW, routes, SG (22 + opencode port),
-  IAM role for SSM, optional key pair, EC2, EIP
+- `versions.tf` — terraform + AWS provider pins, S3 backend, default tags
+- `variables.tf` / `locals.tf` / `data.tf` — inputs, naming/tags, AMI + AZs
+- `main.tf` — composes `modules/network` + `modules/compute` only
+- `modules/network` — VPC, subnet, IGW, routes, SG (22 + opencode port)
+- `modules/compute` — IAM role for SSM, optional key pair, EC2, EIP,
+  `user_data.sh` bootstrap (docker, Node 22, opencode)
 - `outputs.tf` — instance_id, public_ip, vpc/sg ids, ssh/ssm commands
-- `user_data.sh` — bootstrap: docker, Node 22, opencode
+- `bootstrap/` — one-time stack for the S3 state bucket (local state)
+- `backend.hcl.example` — copy to `backend.hcl` (gitignored) after bootstrap
 - `terraform.tfvars.example` — copy to `terraform.tfvars` (gitignored)
 - `environments/staging.tfvars` — committed staging defaults; local = staging
 - `Makefile` — `init` / `fmt` / `validate` / `plan-staging` / `apply-staging` / `pre-commit`
@@ -40,8 +42,10 @@ Load these before changing infra:
 3. Always rely on GitHub Actions outcome after push (`gh run watch`).
    `pre-commit` and `terraform` jobs must both be green.
 4. Never commit state or secrets: no `*.tfstate*`, no `terraform.tfvars`,
-   no private keys. `environments/*.tfvars` holds committed non-secret
-   defaults only. `ssh_public_key` stays empty unless needed; prefer SSM.
+   no `backend.hcl`, no private keys. `environments/*.tfvars` holds
+   committed non-secret defaults only. `ssh_public_key` stays empty
+   unless needed; prefer SSM. Deploy `bootstrap/` before the root stack;
+   then `init -migrate-state -backend-config=backend.hcl` once.
 5. `terraform fmt -recursive` and `terraform validate` must pass locally
    before push. CI runs `fmt -check`, `init -backend=false`, `validate`.
 6. Plan before apply. Never `apply -auto-approve` locally; review the plan.
