@@ -54,14 +54,9 @@ jobs:
           terraform_version: "1.13.3"
           terraform_wrapper: false
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
       - name: Start moto server
         run: |
-          pip install 'moto[server]'
-          MOTO_IAM_LOAD_MANAGED_POLICIES=true nohup python3 -m moto.server -p5000 > /tmp/moto.log 2>&1 &
+          docker run -d --name moto -p 5000:5000 -e MOTO_IAM_LOAD_MANAGED_POLICIES=true motoserver/moto:latest
           for i in $(seq 1 30); do curl -sf http://localhost:5000/moto-api/ >/dev/null && break || sleep 2; done
 
       - name: Create local state bucket
