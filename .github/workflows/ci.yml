@@ -129,6 +129,15 @@ jobs:
       - name: Terraform plan (moto, no AWS credentials)
         run: terraform plan -var-file=environments/local.tfvars -input=false
 
+      - name: Terraform apply (moto throwaway, compute only — Moto's
+          CloudWatch mock rejects PutMetricAlarm, so monitoring is plan-only)
+        run: terraform apply -target=module.compute -var-file=environments/local.tfvars -input=false -auto-approve
+
+      - name: Idempotence check (second plan on non-empty state must be empty)
+        run: |
+          terraform plan -target=module.compute -var-file=environments/local.tfvars -input=false -detailed-exitcode || exitcode=$?
+          if [ "${exitcode:-0}" != "0" ]; then echo "non-idempotent plan on existing state"; exit 1; fi
+
       - name: Bootstrap test (rendered user_data executes in AL2023)
         run: ./scripts/test-bootstrap.sh
 
