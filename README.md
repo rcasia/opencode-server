@@ -45,6 +45,24 @@ aws ssm start-session --region eu-west-1 --target $(terraform output -raw instan
 # or SSH if ssh_public_key set
 ```
 
+## Fully local deploy (Moto)
+
+No AWS credentials needed. Everything runs against a Moto mock:
+
+```bash
+pip install 'moto[server]'
+make local-up      # start mock + state bucket + register placeholder AMI
+make plan-local    # init + fmt + validate + plan against the mock
+make apply-local   # deploy to the mock
+make destroy-local # teardown
+make local-down    # stop the mock
+```
+
+Notes: `aws_endpoint_url` switches the provider, backend, and lookups to
+the mock. `make local-up` writes the mock AMI id to
+`environments/local.auto.tfvars.json` (generated, gitignored) because Moto
+only boots registered images. Outputs (IPs, ids) are mock values.
+
 ## State backend (S3)
 
 Root state lives in S3 with native locking (`use_lockfile`, no DynamoDB).
