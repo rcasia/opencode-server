@@ -11,9 +11,9 @@ Provisions: VPC + public subnet + IGW, security group (SSH + opencode 4096), IAM
 - `modules/compute` — IAM role (SSM), optional key pair, EC2, EIP
 - `bootstrap/` — one-time stack creating the S3 state bucket
 
-## Usage (staging deploys via pipeline only)
+## Usage (prod deploys via pipeline only)
 
-Staging deploys run ONLY through the `deploy` workflow. Never
+Prod deploys run ONLY through the `deploy` workflow. Never
 `terraform apply` against real AWS from your laptop; local runs target
 the Moto mock (see below).
 
@@ -22,7 +22,7 @@ gh workflow run deploy --ref main -f action=plan    # plan only
 gh workflow run deploy --ref main -f action=apply   # plan + apply
 ```
 
-`make plan-staging` works as a local pre-flight plan (needs credentials
+`make plan-prod` works as a local pre-flight plan (needs credentials
 plus `backend.hcl`), but apply happens in GitHub Actions with OIDC.
 
 ## Pipeline setup (one-time, AWS console)
@@ -45,8 +45,8 @@ Deploys use OIDC — no long-lived access keys.
 5. GitHub → repo Settings → Secrets and variables → Actions:
    - Secret `AWS_ROLE_ARN` = the role ARN from step 2.
    - Variable `TF_STATE_BUCKET` = the state bucket name from step 4.
-6. Restrict `allowed_ssh_cidr` in `environments/staging.tfvars` to your
-   IP with `/32` — never deploy staging open to `0.0.0.0/0`.
+6. Restrict `allowed_ssh_cidr` in `environments/prod.tfvars` to your
+   IP with `/32` — never deploy prod open to `0.0.0.0/0`.
 7. Dispatch a plan first, review it, then dispatch apply.
 
 Connect:
