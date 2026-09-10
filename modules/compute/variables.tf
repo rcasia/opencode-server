@@ -35,6 +35,12 @@ variable "data_volume_size" {
   default     = 10
 }
 
+variable "deployed_version" {
+  description = "Version ref stamped on the instance and data disk"
+  type        = string
+  default     = "unreleased"
+}
+
 variable "ssh_public_key" {
   description = "Optional SSH public key. If empty, use SSM Session Manager."
   type        = string

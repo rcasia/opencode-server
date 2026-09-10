@@ -14,7 +14,8 @@ subnet (no NAT), Elastic IP, SSM access, optional SSH key.
   persistent EBS data disk at `/var/lib/docker` (see ADR-0008),
   `user_data.sh` bootstrap (docker, compose app stack from `app/`,
   CW agent; opencode password from SSM SecureString)
-- `outputs.tf` — instance_id, public_ip, vpc/sg ids, ssh/ssm commands, opencode_url
+- `outputs.tf` — instance_id, public_ip, vpc/sg ids, ssh/ssm commands, opencode_url,
+  deployed_version (commit SHA stamped on instance + data disk as `DeployedRef`)
 - `modules/monitoring` — SNS topic + optional email subscription, CW log groups,
   metric filters (Caddy 401s, sshd failures) + alarms (see ADR-0006)
 - `app/` — prod compose stack (`compose.yaml` with pinned Caddy + opencode

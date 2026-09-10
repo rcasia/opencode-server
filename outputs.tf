@@ -32,3 +32,8 @@ output "opencode_url" {
   description = "Public opencode web URL (requires domain_name + DNS A record to the EIP)"
   value       = var.domain_name != "" ? "https://${var.domain_name}" : "no domain_name set — Caddy not configured"
 }
+
+output "deployed_version" {
+  description = "Version ref of the applied configuration (commit SHA from the pipeline)"
+  value       = var.deployed_version
+}

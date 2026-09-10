@@ -76,6 +76,12 @@ variable "alert_email" {
   default     = ""
 }
 
+variable "deployed_version" {
+  description = "Version ref stamped on resources (commit SHA from the pipeline, 'unreleased' locally)"
+  type        = string
+  default     = "unreleased"
+}
+
 variable "domain_name" {
   description = "Public domain for opencode web (Caddy automatic TLS). Empty skips Caddy config."
 

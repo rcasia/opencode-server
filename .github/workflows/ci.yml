@@ -176,7 +176,7 @@ jobs:
       - name: Terraform plan
         id: plan
         run: |
-          terraform plan -var-file=environments/prod.tfvars -input=false -out=tfplan -detailed-exitcode || exitcode=$?
+          terraform plan -var-file=environments/prod.tfvars -var "deployed_version=$GITHUB_SHA" -input=false -out=tfplan -detailed-exitcode || exitcode=$?
           exitcode=${exitcode:-0}
           echo "exitcode=$exitcode" >> "$GITHUB_OUTPUT"
           if [ "$exitcode" -eq 1 ]; then exit 1; fi

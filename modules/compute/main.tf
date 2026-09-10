@@ -77,7 +77,10 @@ resource "aws_instance" "server" {
     encrypted   = true
   }
 
-  tags = { Name = "${var.name_prefix}-server" }
+  tags = {
+    Name        = "${var.name_prefix}-server"
+    DeployedRef = var.deployed_version
+  }
 }
 
 resource "aws_eip" "server" {
@@ -97,7 +100,10 @@ resource "aws_ebs_volume" "data" {
   type              = "gp3"
   encrypted         = true
 
-  tags = { Name = "${var.name_prefix}-data" }
+  tags = {
+    Name        = "${var.name_prefix}-data"
+    DeployedRef = var.deployed_version
+  }
 }
 
 resource "aws_volume_attachment" "data" {

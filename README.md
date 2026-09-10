@@ -134,6 +134,12 @@ After boot, open `https://54-170-161-9.nip.io` on your phone and log in as
 `opencode`. If the EIP ever changes, update `domain_name` to match
 (`<new-ip-with-dashes>.nip.io`).
 
+Which version is live: every apply stamps the commit SHA as the
+`DeployedRef` tag on the instance and data disk (EC2 console → Tags) and
+in the `deployed_version` output. Compare with `git log --oneline -1` —
+same SHA means prod matches your checkout. App image versions ride along:
+they're pinned in `app/compose.yaml` at that commit.
+
 ## App stack (compose, testable locally)
 
 Caddy + opencode run as containers from `app/compose.yaml` (images pinned

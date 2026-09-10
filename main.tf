@@ -15,6 +15,7 @@ module "compute" {
   subnet_id                   = module.network.public_subnet_id
   security_group_id           = module.network.security_group_id
   availability_zone           = local.availability_zone
+  deployed_version            = var.deployed_version
   ssh_public_key              = var.ssh_public_key
   root_volume_size            = var.root_volume_size
   aws_region                  = var.aws_region
