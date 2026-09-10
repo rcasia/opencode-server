@@ -1,6 +1,6 @@
 name: deploy
 
-# Pipeline-only deploys to staging. No local applies against real AWS.
+# Pipeline-only deploys to prod. No local applies against real AWS.
 # Run: gh workflow run deploy --ref main -f action=plan|apply
 
 on:
@@ -20,17 +20,51 @@ permissions:
   contents: read
 
 concurrency:
-  group: staging-deploy
+  group: prod-deploy
   cancel-in-progress: false
 
 env:
   AWS_REGION: eu-west-1
-  TF_STATE_KEY: opencode-server/staging/terraform.tfstate
+  TF_STATE_KEY: opencode-server/prod/terraform.tfstate
 
 jobs:
-  plan:
+  local-check:
     runs-on: ubuntu-latest
-    environment: staging
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.13.3"
+          terraform_wrapper: false
+
+      - name: Start moto server
+        run: |
+          docker run -d --name moto -p 5000:5000 -e MOTO_IAM_LOAD_MANAGED_POLICIES=true motoserver/moto:latest
+          for i in $(seq 1 30); do curl -sf http://localhost:5000/moto-api/ >/dev/null && break || sleep 2; done
+
+      - name: Create local state bucket
+        env:
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+        run: aws --endpoint-url=http://localhost:5000 --region eu-west-1 s3 mb s3://opencode-local-tfstate
+
+      - name: Terraform init (moto backend)
+        run: terraform init -reconfigure -backend-config=environments/local.backend.hcl -input=false
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan (moto, no AWS credentials)
+        run: terraform plan -var-file=environments/local.tfvars -input=false
+
+  plan:
+    needs: local-check
+    runs-on: ubuntu-latest
+    environment: prod
     defaults:
       run:
         shell: bash
@@ -61,7 +95,7 @@ jobs:
         run: terraform validate
 
       - name: Terraform plan
-        run: terraform plan -var-file=environments/staging.tfvars -input=false -out=tfplan
+        run: terraform plan -var-file=environments/prod.tfvars -input=false -out=tfplan
 
       - name: Upload plan
         uses: actions/upload-artifact@v4
@@ -74,7 +108,7 @@ jobs:
     needs: plan
     if: inputs.action == 'apply'
     runs-on: ubuntu-latest
-    environment: staging
+    environment: prod
     defaults:
       run:
         shell: bash
