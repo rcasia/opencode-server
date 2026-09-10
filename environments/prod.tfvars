@@ -8,4 +8,4 @@ allowed_ssh_cidr = "88.148.42.240/32"
 ssh_public_key   = "" # optional: "ssh-ed25519 AAAA..."
 root_volume_size = 30
 opencode_port    = 4096
-domain_name      = "" # TODO: set your domain, e.g. "code.example.com" (needs A record -> EIP)
+domain_name      = "54-170-161-9.nip.io" # wildcard DNS for the EIP; Caddy gets Let's Encrypt TLS for it
