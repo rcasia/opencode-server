@@ -43,8 +43,12 @@ dnf install -y docker-compose-plugin || {
 }
 docker compose version
 
-# App stack (single source of truth: app/ in the repo, via templatefile)
+# App stack (single source of truth: app/ in the repo, via templatefile).
+# rm -rf first: a previous boot once left Caddyfile behind as a directory
+# (Docker bind-mount auto-creation), which made `cat` fail and killed boot.
 mkdir -p /opt/opencode/logs
+ls -la /opt/opencode/
+rm -rf /opt/opencode/compose.yaml /opt/opencode/Caddyfile
 cat > /opt/opencode/compose.yaml <<'COMPOSE_EOF'
 ${compose_yaml}
 COMPOSE_EOF
