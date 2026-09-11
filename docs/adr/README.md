@@ -27,6 +27,7 @@ trade-offs, and never rewrite an accepted record — supersede it with a new one
 | [0021](0021-scale-to-zero-spike.md) | Scale-to-zero workers per project (spike verdict: reject) | Accepted | 2026-09-11 |
 | [0022](0022-session-auto-recovery-spike.md) | Session auto-recovery (spike verdict: drain + diff-gated retry) | Accepted | 2026-09-11 |
 | [0023](0023-global-config-precedence.md) | Managed global OpenCode config and merge precedence | Accepted | 2026-09-11 |
+| [0024](0024-staged-user-data.md) | Staged user_data (bootstrap/app/monitoring) | Accepted | 2026-09-11 |
 
 ## Creating a New ADR
 

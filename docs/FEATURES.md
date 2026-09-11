@@ -26,7 +26,10 @@ rule 10).
  - **App-only pushes ship via `deploy-app`.** When infra is unchanged,
    the bundle uploads and `switch.sh deploy` runs over SSM — including
    from a cold edge.
-- **Cattle hosts.** Any `user_data` change replaces the instance;
+- **Cattle hosts, staged boot.** `user_data` is a thin bootstrap (disk,
+  docker, toolchain); the app (`app/host/app.sh`) and monitoring
+  (`app/host/monitoring.sh`) stages ship via the bundle and re-run over
+  SSM. Only bootstrap or Terraform-var changes replace the instance;
   EIP and data volume survive. App deploys do not replace the host.
 
 ## Serve
