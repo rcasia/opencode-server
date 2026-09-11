@@ -163,7 +163,13 @@ READY_BODY="$(curl -sk --max-time 10 https://localhost/ready || true)"
 [ "$READY_BODY" = "ready" ] || { echo "FAIL: /ready body is '$READY_BODY', want 'ready'"; exit 1; }
 echo "PASS: public /ready answers 'ready' (a backend color answers behind the edge)"
 
+echo "==> Probing backend API route (GET /command, the web UI calls it per directory)"
+CMD_RESP="$(docker compose exec -T caddy sh -c 'curl -s --max-time 10 -o /dev/null -w "%{http_code}" -H "Authorization: Basic $BASIC_AUTH" "http://opencode-blue:4096/command?directory=/root/workspace"' || true)"
+[ "$CMD_RESP" = "200" ] || { echo "FAIL: backend /command returned '$CMD_RESP', want 200"; exit 1; }
+echo "PASS: backend /command answers 200 for the workspace directory"
+
 echo "==> Asserting per-service env isolation (ADR-0028)"
+echo "==> Asserting backend password and provider keys are wired"
 [ "$(docker compose exec -T opencode-blue printenv OPENCODE_SERVER_PASSWORD)" = "$DUMMY" ] \
   || { echo "FAIL: OPENCODE_SERVER_PASSWORD not set in opencode-blue"; exit 1; }
 [ "$(docker compose exec -T opencode-blue printenv ANTHROPIC_API_KEY)" = "boot-test-anthropic-key" ] \
