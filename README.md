@@ -119,19 +119,37 @@ shells. The server is operated through `opencode web` (the
 suspect box is recovered by re-running the deploy jobs, not by logging
 in; the data volume survives replacement.
 
-## opencode web access (phone-friendly HTTPS)
+## opencode web access (phone-friendly HTTPS, passwordless SSO)
 
-Design rationale lives in [`docs/adr/0001-caddy-tls-proxy.md`](docs/adr/0001-caddy-tls-proxy.md):
-Caddy terminates TLS and proxies to `opencode web` on localhost; the login
-password comes from an SSM SecureString parameter (never in repo/state).
+Design rationale lives in [`docs/adr/0001-caddy-tls-proxy.md`](docs/adr/0001-caddy-tls-proxy.md)
+and [`docs/adr/0014-github-sso-oauth2-proxy.md`](docs/adr/0014-github-sso-oauth2-proxy.md):
+Caddy terminates TLS and gates every browser route (except `/ping`) on
+GitHub SSO via oauth2-proxy (single-user allowlist); the opencode backend
+password stays machine-only — Caddy injects it after SSO, so you never
+type a shared password.
 
 One-time setup (from your laptop, needs AWS credentials):
 
 ```bash
-# store the web password (username is `opencode`)
+# 1. GitHub → Settings → Developer settings → OAuth Apps → New OAuth App:
+#    Homepage URL https://<domain>, callback https://<domain>/oauth2/callback.
+#    Copy the Client ID into github_oauth_client_id (tfvars, public).
+# 2. store the client secret (shown once — copy immediately)
+aws ssm put-parameter --region eu-west-1 --name /opencode/github-oauth-secret \
+  --type SecureString --value 'YOUR-OAUTH-CLIENT-SECRET'
+
+# 3. mint the session cookie secret (32-byte base64url, never in git)
+openssl rand -base64 32 | tr -- '+/' '-_' | tr -d '\n' | \
+  xargs -I{} aws ssm put-parameter --region eu-west-1 \
+    --name /opencode/oauth-cookie-secret --type SecureString --value '{}'
+
+# 4. keep the backend password too (machine-only, human never types it)
 aws ssm put-parameter --region eu-west-1 --name /opencode/server-password \
   --type SecureString --value 'YOUR-STRONG-PASSWORD'
 ```
+
+Then set `github_oauth_client_id` and `github_oauth_user` in
+`environments/prod.tfvars` and push to `main`.
 
 Rotating later: [`docs/credentials-rotation.md`](docs/credentials-rotation.md)
 (overwrite the parameter + one SSM command, no Terraform run).
@@ -141,9 +159,10 @@ No DNS step needed: `domain_name` in `environments/prod.tfvars` uses
 gets a real Let's Encrypt certificate for it automatically.
 
 Push to `main`; the pipeline replaces the instance (EIP and DNS survive).
-After boot, open `https://54-170-161-9.nip.io` on your phone and log in as
-`opencode`. If the EIP ever changes, update `domain_name` to match
-(`<new-ip-with-dashes>.nip.io`).
+After boot, open `https://54-170-161-9.nip.io` on your phone and log in
+with GitHub (single allowed user). If the EIP ever changes, update
+`domain_name` to match (`<new-ip-with-dashes>.nip.io`) — and update the
+OAuth App callback URL to `https://<new-domain>/oauth2/callback`.
 
 Which version is live: every apply stamps the commit SHA as the
 `DeployedRef` tag on the instance and data disk (EC2 console → Tags) and
@@ -158,10 +177,11 @@ Caddy + opencode run as containers from `app/compose.yaml` (images pinned
 [`docs/adr/0007-compose-deployment.md`](docs/adr/0007-compose-deployment.md).
 
 ```bash
-make test-boot   # full chain locally: compose up, HTTPS, 401 without creds, 200 with
+make test-boot   # full chain locally: compose up, HTTPS, 302 SSO gate, 200 with
 ```
 
-`test-boot` uses dummy env (never committed) and tears everything down
+`test-boot` uses dummy env (never committed, dummy OAuth values — proves
+SSO wiring, not the GitHub round-trip) and tears everything down
 afterwards. It proves installs, config, proxy, and auth — everything except
 Let's Encrypt issuance, which needs the public IP. `user_data.sh` changes
 are proven by shellcheck plus real deploys (the instance is cattle and the
@@ -188,8 +208,9 @@ through instance replacement (see
 ## Intrusion alerts
 
 Port 443 is public by design, so scanners will knock. Caddy access logs and
-sshd logs ship to CloudWatch; alarms email you on login probing (≥20 HTTP
-401s in 5 min) or SSH probing (≥3 failures in 5 min). Rationale:
+sshd logs ship to CloudWatch; alarms email you on SSO probing (≥20 HTTP
+403s in 5 min), backend login probing (≥20 HTTP 401s in 5 min), or SSH
+probing (≥3 failures in 5 min). Rationale:
 [`docs/adr/0006-intrusion-alerting.md`](docs/adr/0006-intrusion-alerting.md).
 Cost is cents per month (log ingestion + 2 alarms).
 
@@ -261,8 +282,9 @@ Have ready up front:
 - This repo, with `environments/prod.tfvars` filled (`allowed_ssh_cidr`
   as your `/32`). Leave `domain_name` empty on the first pass — the EIP
   is not known yet.
-- Two secret values (never in git): a strong opencode password and a
-  GitHub personal access token.
+- Four secret values (never in git): a strong opencode password, a
+  GitHub personal access token, a GitHub OAuth App client secret, and a
+  32-byte oauth cookie secret.
 - The OIDC subject in `bootstrap/variables.tf` (`deploy_subject`) — it
   is committed; EMU orgs need the numeric form, no slug pattern.
 - The bridge policy JSON in
@@ -282,16 +304,19 @@ Steps:
 4. Repo Settings → Secrets and variables → Actions: `AWS_ROLE_ARN`
    secret (the role ARN), `TF_STATE_BUCKET` variable (the bucket name),
    optional `ALERT_EMAIL` variable.
-5. Seed the SSM SecureStrings `/opencode/server-password` and
-   `/opencode/github-token` (console or any admin machine — values only,
-   Terraform never manages secret values).
+5. Seed the SSM SecureStrings `/opencode/server-password`,
+   `/opencode/github-token`, `/opencode/github-oauth-secret`, and
+   `/opencode/oauth-cookie-secret` (console or any admin machine —
+   values only, Terraform never manages secret values). Create the GitHub
+   OAuth App first (callback `https://<domain>/oauth2/callback` once the
+   domain is known — step 7; use a placeholder and fix it then).
 6. Push to `main`: `bootstrap` adopts the bucket/role/provider, converges
    the managed policy, and deletes `bridge`; `deploy-prod` then builds
    everything. Read the new EIP from the `terraform output` step log.
 7. Set `domain_name` to `<eip-with-dashes>.nip.io` in
    `environments/prod.tfvars` and push again. The instance is replaced
    (EIP and data volume survive); Caddy issues TLS and the smoke test
-   expects the 401 gate.
+   expects the 302 SSO gate.
 8. Click the SNS subscription confirmation email.
 
 Permanently manual: the two SSM secret values and the SNS confirmation

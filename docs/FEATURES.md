@@ -25,9 +25,11 @@ rule 10).
 ## Serve
 
 - **Phone-friendly HTTPS opencode.** Caddy terminates TLS (Let's Encrypt
-  over `nip.io`) and proxies to `opencode web` on localhost; SSM-backed
-  password, `401` auth gate, unauthenticated `/ping` for probes.
-  (`app/`, ADR-0001, ADR-0005)
+  over `nip.io`) and proxies to `opencode web` on localhost; passwordless
+  GitHub SSO (oauth2-proxy, single-user allowlist) is the human gate while
+  the SSM-backed backend password stays machine-only (Caddy-injected),
+  `302`-to-`/oauth2/*` gate, unauthenticated `/ping` for probes.
+  (`app/`, ADR-0001, ADR-0005, ADR-0014)
 - **Persistent state.** 10 GB encrypted EBS at `/var/lib/docker`:
   sessions, images, workspace, and certs survive replacement. Only a
   full destroy wipes it. (ADR-0008)
@@ -38,9 +40,10 @@ rule 10).
 
 ## Watch
 
-- **Intrusion alerting.** Caddy 401 bursts (≥20/5 min) and sshd failures
-  (≥3/5 min) ship to CloudWatch and page via SNS email.
-  (`modules/monitoring`, ADR-0006)
+- **Intrusion alerting.** SSO-deny 403 bursts and backend 401 bursts
+  (≥20/5 min each) and sshd failures (≥3/5 min) ship to CloudWatch and
+  page via SNS email.
+  (`modules/monitoring`, ADR-0006, ADR-0014)
 - **Uptime probe.** Route 53 hits `/ping` every 30s, pages after 3
   failures — outside the login-failure metric. (`modules/monitoring`,
   ADR-0009)
@@ -72,7 +75,8 @@ rule 10).
   cooldown) for actions/terraform/compose-image pins, `tag@digest`
   images. (ADR-0003)
 - **Local testability.** Moto mock (`make local-up/plan-local/apply-local`,
-  no credentials) plus `make test-boot` (compose chain with dummy env).
+  no credentials) plus `make test-boot` (compose chain with dummy env,
+  dummy OAuth values — proves SSO wiring, not the GitHub round-trip).
   Moto catches config errors, never real-AWS behavior.
 
 ## Out of scope

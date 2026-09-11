@@ -4,8 +4,9 @@ All secrets live in SSM SecureStrings (never in git, tfvars, images, or
 Terraform state — see ADR-0004, ADR-0010). Rotation never touches
 Terraform: overwrite the parameter, then make the running box pick it up.
 
-Conventions below: region `eu-west-1`, parameters `/opencode/server-password`
-and `/opencode/github-token`, instance tagged `opencode-prod-server`.
+Conventions below: region `eu-west-1`, parameters `/opencode/server-password`,
+`/opencode/github-token`, `/opencode/github-oauth-secret`, and
+`/opencode/oauth-cookie-secret`, instance tagged `opencode-prod-server`.
 The `aws` commands run from any admin machine with AWS access (same access
 as the initial seeding in the README). Never `echo` a secret value, never
 paste one into a GitHub issue, workflow log, or chat.
@@ -14,7 +15,9 @@ paste one into a GitHub issue, workflow log, or chat.
 
 | Credential | Lives in | Read by | Rotation | Picks up |
 |---|---|---|---|---|
-| opencode web password (`opencode` user) | SSM `/opencode/server-password` | instance role, at boot → `/opt/opencode/app.env` (0600) | `put-parameter --overwrite` + §1 | SSM command (seconds) or instance replacement |
+| opencode web password (`opencode` user, machine-only behind SSO) | SSM `/opencode/server-password` | instance role, at boot → `/opt/opencode/app.env` (0600) + derived `BASIC_AUTH` | `put-parameter --overwrite` + §1 | SSM command (seconds) or instance replacement |
+| GitHub OAuth client secret (SSO human gate) | SSM `/opencode/github-oauth-secret` | instance role, at boot → `/opt/opencode/app.env` (0600) | new OAuth secret + `put-parameter --overwrite` + §1b | SSM command (seconds) or instance replacement |
+| oauth2-proxy cookie secret (32-byte base64url) | SSM `/opencode/oauth-cookie-secret` | instance role, at boot → `/opt/opencode/app.env` (0600) | new random + `put-parameter --overwrite` + §1b | SSM command (seconds) or instance replacement |
 | GitHub PAT (contents read/write) | SSM `/opencode/github-token` | boot helper → container `/root/.git-credentials` (600) | new PAT + `put-parameter --overwrite` + §2 | helper re-run (seconds) |
 | SSH key | `ssh_public_key` var (empty in prod = SSM-only) | — | §3 | instance replacement via pipeline |
 | TLS certificate | Caddy `caddy-data` volume on the data disk | Caddy (automatic Let's Encrypt) | automatic | §4 if forced |
@@ -33,19 +36,20 @@ IID=$(aws ec2 describe-instances --region eu-west-1 \
             'Name=instance-state-name,Values=running' \
   --query 'Reservations[0].Instances[0].InstanceId' --output text)
 
-# 3. swap the password line and recreate the container (prints nothing secret)
+# 3. swap the password line AND the derived BASIC_AUTH (Caddy injects it
+#    after SSO — stale BASIC_AUTH breaks every login with a backend 401)
 aws ssm send-command --region eu-west-1 --instance-ids "$IID" \
   --document-name AWS-RunShellScript \
-  --parameters 'commands=["set -euo pipefail", "VALUE=$(aws ssm get-parameter --name /opencode/server-password --with-decryption --query Parameter.Value --output text --region eu-west-1)", "sed -i '\''/^OPENCODE_SERVER_PASSWORD=/d'\'' /opt/opencode/app.env", "printf '\''OPENCODE_SERVER_PASSWORD=%s\\n'\'' \"$VALUE\" >> /opt/opencode/app.env", "chmod 600 /opt/opencode/app.env", "cd /opt/opencode && docker compose up -d"]' \
+  --parameters 'commands=["set -euo pipefail", "VALUE=$(aws ssm get-parameter --name /opencode/server-password --with-decryption --query Parameter.Value --output text --region eu-west-1)", "sed -i '\''/^OPENCODE_SERVER_PASSWORD=/d; /^BASIC_AUTH=/d'\'' /opt/opencode/app.env", "printf '\''OPENCODE_SERVER_PASSWORD=%s\\n'\'' \"$VALUE\" >> /opt/opencode/app.env", "BASIC=$(printf '\''opencode:%s'\'' \"$VALUE\" | base64 | tr -d '\''\\n'\'')", "printf '\''BASIC_AUTH=%s\\n'\'' \"$BASIC\" >> /opt/opencode/app.env", "chmod 600 /opt/opencode/app.env", "cd /opt/opencode && docker compose up -d"]' \
   --query 'Command.CommandId' --output text
 ```
 
-Verify: log out of `https://<domain>` and log back in with the new
-password (old sessions stay valid until their cookie expires — expected).
-A `curl` check keeps the secret out of shell history better than `-u`:
+Verify: open `https://<domain>` in a logged-out browser — expect a
+redirect into `/oauth2/*` (GitHub login), then the app after login. A
+`curl` check keeps secrets out of shell history:
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' https://<domain>/   # want 401, no creds
+curl -sk -o /dev/null -w '%{http_code} %{redirect_url}\n' https://<domain>/   # want 302 to /oauth2/*
 ```
 
 Notes:
@@ -62,6 +66,31 @@ Notes:
   secret in plaintext (see issue #10):
   `aws logs delete-log-stream --region eu-west-1 --log-group-name
   opencode-prod-boot --log-stream-name "$IID"`.
+
+## 1b. GitHub OAuth secret + cookie secret
+
+```bash
+# OAuth client secret: GitHub → OAuth App → regenerate client secret
+# (shown once — copy immediately), then overwrite:
+aws ssm put-parameter --region eu-west-1 --name /opencode/github-oauth-secret \
+  --type SecureString --value 'NEW-OAUTH-SECRET' --overwrite
+
+# Cookie secret: fresh 32-byte base64url (invalidates all SSO sessions —
+# expected; everyone logs back in via GitHub):
+openssl rand -base64 32 | tr -- '+/' '-_' | tr -d '\n' | \
+  xargs -I{} aws ssm put-parameter --region eu-west-1 \
+    --name /opencode/oauth-cookie-secret --type SecureString --value '{}' --overwrite
+
+# Pick up on the box (same $IID lookup as §1; prints nothing secret):
+aws ssm send-command --region eu-west-1 --instance-ids "$IID" \
+  --document-name AWS-RunShellScript \
+  --parameters 'commands=["set -euo pipefail", "S=$(aws ssm get-parameter --name /opencode/github-oauth-secret --with-decryption --query Parameter.Value --output text --region eu-west-1)", "sed -i '\''/^OAUTH2_PROXY_CLIENT_SECRET=/d'\'' /opt/opencode/app.env", "printf '\''OAUTH2_PROXY_CLIENT_SECRET=%s\\n'\'' \"$S\" >> /opt/opencode/app.env", "C=$(aws ssm get-parameter --name /opencode/oauth-cookie-secret --with-decryption --query Parameter.Value --output text --region eu-west-1)", "sed -i '\''/^OAUTH2_PROXY_COOKIE_SECRET=/d'\'' /opt/opencode/app.env", "printf '\''OAUTH2_PROXY_COOKIE_SECRET=%s\\n'\'' \"$C\" >> /opt/opencode/app.env", "chmod 600 /opt/opencode/app.env", "cd /opt/opencode && docker compose up -d"]' \
+  --query 'Command.CommandId' --output text
+```
+
+Verify: logged-out browser hits the GitHub login (cookie rotation logs
+everyone out — expected). Same `set +x` discipline as §1 holds for both
+values; never `echo` them.
 
 ## 2. GitHub PAT
 
@@ -117,20 +146,28 @@ again. The data disk otherwise never needs touching for rotation.
 ## 5. Incident rotation (suspected compromise)
 
 1. GitHub: mint a replacement PAT now, but keep the old one until step 4.
-2. SSM: overwrite **both** parameters (`server-password`, `github-token`).
-3. Box: run the §1 password swap and the §2 helper re-run (two commands).
-4. Verify: fresh web login with the new password; helper exit 0.
-5. Revoke: old PAT on GitHub; old password is dead the moment step 3
-   completes (nothing to revoke — it only ever lived in SSM + `app.env`).
+2. SSM: overwrite **all four** parameters (`server-password`,
+   `github-token`, `github-oauth-secret`, `oauth-cookie-secret`).
+3. Box: run the §1 password swap (refreshes `BASIC_AUTH` too), the §1b
+   OAuth swap, and the §2 helper re-run (three commands).
+4. Verify: fresh GitHub SSO login in a logged-out browser; helper exit 0.
+5. Revoke: old PAT on GitHub; old OAuth client secret in the OAuth App
+   settings; old password/cookie secret are dead the moment step 3
+   completes (nothing to revoke — they only ever lived in SSM + `app.env`).
 6. Clean: delete the instance's `-boot` log stream (see §1); check the
-   `login-probe` / `ssh-probe` alarms for activity during the window.
+   `oauth-deny` / `login-probe` / `ssh-probe` alarms for activity during
+   the window.
 7. If the box itself is suspect (not just a credential): do not repair it —
    push a commit that replaces the instance; the data volume survives.
    Reads/writes stay pipeline-only per AGENTS.md.
 
 ## 6. Cadence
 
-- Web password: every 90 days, or on operator change.
+- Web password (machine-only): every 90 days, or on operator change —
+  always with the §1 `BASIC_AUTH` refresh.
+- OAuth client secret: on operator change or suspected leak (§1b).
+- oauth cookie secret: on operator change or suspected leak (§1b; logs
+  everyone out).
 - GitHub PAT: GitHub's own expiry (set ≤ 90 days on fine-grained tokens);
   rotation is steps §2.1–§2.4, no deploy needed.
 - SSH: n/a while keyless.
@@ -139,5 +176,6 @@ again. The data disk otherwise never needs touching for rotation.
 ## Related
 
 - README "opencode web access" and "Git on the server" (initial seeding).
-- ADR-0004 (password), ADR-0010 (git auth), ADR-0006 (alerts to watch).
+- ADR-0004 (password), ADR-0010 (git auth), ADR-0006 (alerts to watch),
+  ADR-0014 (SSO secrets).
 - Issues #7 (PAT permission), #10 (secret in boot logs), #13 (alert gaps).
