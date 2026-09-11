@@ -12,8 +12,11 @@ terraform {
     }
   }
 
-  # Local state on purpose: this stack creates the S3 bucket
-  # that the root stack then uses as its backend.
+  # S3 backend, completed via -backend-config flags (the bootstrap CI job
+  # passes bucket/key/region; pre-commit inits with -backend=false).
+  # State key: opencode-server/bootstrap/terraform.tfstate (covered by the
+  # deploy role's state-object permissions).
+  backend "s3" {}
 }
 
 provider "aws" {

@@ -174,6 +174,7 @@ data "aws_iam_policy_document" "deploy" {
       "iam:GetRole",
       "iam:DeleteRole",
       "iam:UpdateRole",
+      "iam:UpdateAssumeRolePolicy",
       "iam:PutRolePolicy",
       "iam:GetRolePolicy",
       "iam:DeleteRolePolicy",
@@ -298,6 +299,77 @@ data "aws_iam_policy_document" "deploy" {
     sid       = "Identity"
     actions   = ["sts:GetCallerIdentity"]
     resources = ["*"]
+  }
+
+  # Bootstrap self-management: the pipeline applies bootstrap/ AS this
+  # role, so the role must manage its own trust (DeploySelf + DeployOIDC)
+  # and the state bucket lifecycle (StateBucket). The one-time manual
+  # bridge policy is deleted by the bootstrap job once this converges.
+  statement {
+    sid = "DeploySelf"
+    actions = [
+      "iam:CreateRole",
+      "iam:GetRole",
+      "iam:DeleteRole",
+      "iam:UpdateRole",
+      "iam:UpdateAssumeRolePolicy",
+      "iam:PutRolePolicy",
+      "iam:GetRolePolicy",
+      "iam:DeleteRolePolicy",
+      "iam:ListRolePolicies",
+      "iam:AttachRolePolicy",
+      "iam:DetachRolePolicy",
+      "iam:ListAttachedRolePolicies",
+      "iam:TagRole",
+      "iam:UntagRole",
+      "iam:CreatePolicy",
+      "iam:GetPolicy",
+      "iam:DeletePolicy",
+      "iam:ListPolicyVersions",
+      "iam:CreatePolicyVersion",
+      "iam:DeletePolicyVersion",
+      "iam:GetPolicyVersion",
+      "iam:TagPolicy",
+      "iam:UntagPolicy",
+    ]
+    resources = [
+      "arn:aws:iam::*:role/${var.project}-server-deploy",
+      "arn:aws:iam::*:policy/${var.project}-server-deploy",
+    ]
+  }
+
+  statement {
+    sid = "DeployOIDC"
+    actions = [
+      "iam:CreateOpenIDConnectProvider",
+      "iam:DeleteOpenIDConnectProvider",
+      "iam:GetOpenIDConnectProvider",
+      "iam:UpdateOpenIDConnectProviderThumbprint",
+      "iam:TagOpenIDConnectProvider",
+      "iam:UntagOpenIDConnectProvider",
+    ]
+    resources = ["arn:aws:iam::*:oidc-provider/token.actions.githubusercontent.com"]
+  }
+
+  # State bucket lifecycle (bootstrap manages the bucket itself).
+  statement {
+    sid = "StateBucket"
+    actions = [
+      "s3:CreateBucket",
+      "s3:DeleteBucket",
+      "s3:ListBucket",
+      "s3:ListBucketVersions",
+      "s3:GetBucketAcl",
+      "s3:GetBucketVersioning",
+      "s3:PutBucketVersioning",
+      "s3:GetBucketEncryption",
+      "s3:PutBucketEncryption",
+      "s3:GetBucketPublicAccessBlock",
+      "s3:PutBucketPublicAccessBlock",
+      "s3:GetBucketTagging",
+      "s3:PutBucketTagging",
+    ]
+    resources = ["arn:aws:s3:::${local.state_bucket_pattern}"]
   }
 }
 
