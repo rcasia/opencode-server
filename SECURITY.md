@@ -22,6 +22,9 @@ Include steps to reproduce and the commit SHA you tested against.
 - **Least privilege by default.** SSH ingress is SSM-only unless an
   explicit `/32` is configured; EBS volumes are encrypted; the agent
   container faces mTLS/SSO gates, never the open internet.
+- **Session audit.** SSM shell sessions stream to a dedicated CloudWatch
+  log group (90-day retention) via a pipeline-owned Session document —
+  interactive access leaves a command record, not just a session start.
 
 ## Supported versions
 

@@ -106,7 +106,9 @@ rule 10).
   post-incident API and network visibility. Shipped off-host: Caddy access
   log, `/var/log/secure`, cloud-init output. Deliberately NOT shipped:
   agent container stdout (prompts, code, echoed secrets stay local under
-  the 10 MB x3 daemon cap) — rationale: issue #55.
+  the 10 MB x3 daemon cap) — rationale: issue #55. SSM shell sessions
+  stream to a dedicated 90-day log group (20-min idle timeout, runAs
+  ssm-user) — rationale: issue #54.
 
 ## Trust
 
