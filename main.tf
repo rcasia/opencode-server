@@ -39,4 +39,5 @@ module "monitoring" {
   name_prefix = local.name_prefix
   alert_email = var.alert_email
   domain_name = var.domain_name
+  instance_id = module.compute.instance_id
 }

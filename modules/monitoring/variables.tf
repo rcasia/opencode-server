@@ -14,3 +14,9 @@ variable "domain_name" {
   type        = string
   default     = ""
 }
+
+variable "instance_id" {
+  description = "EC2 instance ID for the CPU alarm. Empty disables the CPU alarm (fail-open)."
+  type        = string
+  default     = ""
+}
