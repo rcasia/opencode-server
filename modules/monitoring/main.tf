@@ -128,6 +128,9 @@ resource "aws_cloudwatch_metric_alarm" "ssh_probe" {
   alarm_actions       = [aws_sns_topic.alerts.arn]
 }
 
+# Fast-burn twin of login_probe: 10 backend 401s in 1 minute pages sooner
+# on credential-stuffing bursts while the 20/5min alarm keeps watch for
+# low-and-slow probing.
 resource "aws_cloudwatch_metric_alarm" "login_probe_fast" {
   alarm_name          = "${var.name_prefix}-login-probe-fast"
   alarm_description   = "Fast burst of HTTP 401 on the backend (>=10/min): possible brute force behind SSO"
@@ -142,6 +145,8 @@ resource "aws_cloudwatch_metric_alarm" "login_probe_fast" {
   alarm_actions       = [aws_sns_topic.alerts.arn]
 }
 
+# Backend 5xx bursts on the Caddy log group: the app (not the edge) is
+# failing. Threshold is generous to stay quiet on single blips.
 resource "aws_cloudwatch_metric_alarm" "server_error" {
   alarm_name          = "${var.name_prefix}-server-error"
   alarm_description   = "Bursts of HTTP 5xx from Caddy: possible app failure behind the edge"
@@ -156,6 +161,9 @@ resource "aws_cloudwatch_metric_alarm" "server_error" {
   alarm_actions       = [aws_sns_topic.alerts.arn]
 }
 
+# Sustained CPU pressure on the single host. No count gate: count must be
+# plan-time known and the instance ID is computed, so the alarm always
+# exists wherever the module is wired (root main.tf passes the ID).
 resource "aws_cloudwatch_metric_alarm" "cpu_high" {
   alarm_name          = "${var.name_prefix}-cpu-high"
   alarm_description   = "EC2 CPU above 80% for 15 minutes: host under sustained load"
@@ -174,6 +182,13 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
   }
 }
 
+# External uptime probe: Route53 hits the public readiness gate /ready
+# every 30s and pages on 3 consecutive failures (~$0.50/mo). /ready
+# answers 200 only when a backend color answers behind the edge
+# (ADR-0015), so this pages on app failure too — not just edge failure.
+# /ping stays as the edge-local diagnostic (tells edge apart from app).
+# Neither path goes through forward_auth, so probes stay out of the deny
+# metrics.
 resource "aws_route53_health_check" "site" {
   count             = var.domain_name != "" ? 1 : 0
   type              = "HTTPS"
@@ -206,6 +221,11 @@ resource "aws_cloudwatch_metric_alarm" "site_down" {
   }
 }
 
+# Host health (ADR-0019): the data disk (/var/lib/docker, ADR-0008) fills
+# silently — images, sessions, Caddy logs. The CloudWatch agent ships
+# mem_used_percent + disk_used_percent (see compute/user_data.sh); these
+# alarms page the same SNS topic as the intrusion alarms. Thresholds are
+# vars so the operator can tune without editing the module.
 resource "aws_cloudwatch_metric_alarm" "disk_high" {
   alarm_name          = "${var.name_prefix}-disk-high"
   alarm_description   = "Data disk /var/lib/docker above ${var.disk_threshold_percent}%: prune timer or log rotation is losing"
@@ -243,21 +263,33 @@ resource "aws_cloudwatch_metric_alarm" "mem_high" {
   }
 }
 
+# Audit trail (single-region, management events): who-called-what for the
+# account in this region, delivered to a dedicated bucket. Log-file
+# validation on; single region keeps it at cents per month.
 data "aws_caller_identity" "current" {}
 
 resource "aws_s3_bucket" "audit" {
   bucket = "${var.name_prefix}-audit-${data.aws_caller_identity.current.account_id}"
-  tags   = { Name = "${var.name_prefix}-audit" }
+
+  tags = { Name = "${var.name_prefix}-audit" }
 }
 
 resource "aws_s3_bucket_versioning" "audit" {
   bucket = aws_s3_bucket.audit.id
-  versioning_configuration { status = "Enabled" }
+
+  versioning_configuration {
+    status = "Enabled"
+  }
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "audit" {
   bucket = aws_s3_bucket.audit.id
-  rule { apply_server_side_encryption_by_default { sse_algorithm = "AES256" } }
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
 }
 
 resource "aws_s3_bucket_public_access_block" "audit" {
@@ -270,11 +302,17 @@ resource "aws_s3_bucket_public_access_block" "audit" {
 
 resource "aws_s3_bucket_lifecycle_configuration" "audit" {
   bucket = aws_s3_bucket.audit.id
+
   rule {
     id     = "expire-noncurrent-versions"
     status = "Enabled"
+
+    # Empty filter = whole bucket (provider v5 warns without one).
     filter {}
-    noncurrent_version_expiration { noncurrent_days = 90 }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 90
+    }
   }
 }
 
@@ -284,23 +322,45 @@ data "aws_iam_policy_document" "audit" {
     effect    = "Deny"
     actions   = ["s3:*"]
     resources = [aws_s3_bucket.audit.arn, "${aws_s3_bucket.audit.arn}/*"]
-    principals { type = "*" identifiers = ["*"] }
-    condition { test = "Bool" variable = "aws:SecureTransport" values = ["false"] }
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
   }
 
   statement {
     sid       = "CloudTrailAclCheck"
     actions   = ["s3:GetBucketAcl"]
     resources = [aws_s3_bucket.audit.arn]
-    principals { type = "Service" identifiers = ["cloudtrail.amazonaws.com"] }
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudtrail.amazonaws.com"]
+    }
   }
 
   statement {
     sid       = "CloudTrailWrite"
     actions   = ["s3:PutObject"]
     resources = ["${aws_s3_bucket.audit.arn}/trail/*"]
-    principals { type = "Service" identifiers = ["cloudtrail.amazonaws.com"] }
-    condition { test = "StringEquals" variable = "s3:x-amz-acl" values = ["bucket-owner-full-control"] }
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudtrail.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "s3:x-amz-acl"
+      values   = ["bucket-owner-full-control"]
+    }
   }
 }
 
@@ -316,6 +376,8 @@ resource "aws_cloudtrail" "account" {
   include_global_service_events = true
   is_multi_region_trail         = false
   enable_log_file_validation    = true
-  tags                          = { Name = "${var.name_prefix}-trail" }
-  depends_on                    = [aws_s3_bucket_policy.audit]
+
+  tags = { Name = "${var.name_prefix}-trail" }
+
+  depends_on = [aws_s3_bucket_policy.audit]
 }
