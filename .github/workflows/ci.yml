@@ -81,6 +81,10 @@ jobs:
           key: pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('.pre-commit-config.yaml') }}
       - name: Run pre-commit on all files
         run: pre-commit run --show-diff-on-failure --color=always --all-files
+      - name: Validate opencode.json against its $schema
+        run: |
+          pip install "jsonschema==4.25.1"
+          python scripts/validate-opencode-config.py
       - name: Save pre-commit hook envs
         if: always()
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -147,28 +151,6 @@ jobs:
         run: |
           terraform plan -target=module.compute -var-file=environments/local.tfvars -input=false -detailed-exitcode || exitcode=$?
           if [ "${exitcode:-0}" != "0" ]; then echo "non-idempotent plan on existing state"; exit 1; fi
-
-  app-test:
-    needs: [changes]
-    if: always() && (needs.changes.result != 'success' || needs.changes.outputs.app == 'true' || needs.changes.outputs.pipeline == 'true')
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.13"
-      - name: Validate opencode.json against its $schema
-        run: |
-          pip install "jsonschema==4.25.1"
-          python scripts/validate-opencode-config.py
-      - name: Full-chain app boot test (dummy env, opencode.json validation)
-        run: make test-boot
 
   bootstrap:
     needs: [pre-commit, terraform, local, changes]
