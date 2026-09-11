@@ -25,6 +25,7 @@ trade-offs, and never rewrite an accepted record — supersede it with a new one
 | [0019](0019-disk-memory-alerting.md) | Disk and memory alerting with bounded log growth | Accepted | 2026-09-11 |
 | [0020](0020-nono-sandbox-spike.md) | Sandbox opencode with nono (spike verdict: adopt pilot, docker.sock cut) | Accepted | 2026-09-11 |
 | [0021](0021-scale-to-zero-spike.md) | Scale-to-zero workers per project (spike verdict: reject) | Accepted | 2026-09-11 |
+| [0022](0022-session-auto-recovery-spike.md) | Session auto-recovery (spike verdict: drain + diff-gated retry) | Accepted | 2026-09-11 |
 
 ## Creating a New ADR
 
