@@ -50,6 +50,11 @@ rule 10).
 - **Intrusion alerting.** SSO-deny and backend authentication bursts,
   sshd failures, backend 5xx bursts, and sustained host CPU can page via
   CloudWatch/SNS.
+- **Host health.** Data-disk use above 80% and memory above 90% (15 min)
+  page via the same topic. Growth is bounded by construction: container
+  logs capped at the daemon (10 MB x3), Caddy access log rotated
+  (10 MB x3), unused images pruned weekly (never volumes — state
+  survives). Rationale: ADR-0019.
 - **Uptime probe.** Route 53 hits `/ready` every 30s and pages after
   repeated failures.
 - **Audit trail.** Every apply stamps the commit SHA as `DeployedRef`;

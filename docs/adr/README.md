@@ -22,6 +22,7 @@ trade-offs, and never rewrite an accepted record — supersede it with a new one
 | [0013](0013-pipeline-bootstrap.md)     | Bootstrap applied by the pipeline | Accepted | 2026-09-11 |
 | [0014](0014-github-sso-oauth2-proxy.md) | Passwordless GitHub SSO via oauth2-proxy | Accepted | 2026-09-11 |
 | [0015](0015-blue-green-ready-gate.md) | Blue-green backends with a public /ready gate | Accepted | 2026-09-11 |
+| [0019](0019-disk-memory-alerting.md) | Disk and memory alerting with bounded log growth | Accepted | 2026-09-11 |
 
 ## Creating a New ADR
 
