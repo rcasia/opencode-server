@@ -115,7 +115,9 @@ cmd_deploy() {
   trap "restore_backups" INT TERM
 
   log "validating compose config"
-  docker compose config --quiet \
+  # Keep stderr visible so validation warnings surface in CI logs; only the
+  # verbose rendered config on stdout is discarded.
+  docker compose config >/dev/null \
     || {
       restore_backups
       fail "compose config invalid, nothing touched"
