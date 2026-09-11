@@ -10,15 +10,12 @@ allowed_ssh_cidr = ""         # SSM-only default. To allow SSH, set your /32 her
 # validation rejects non-CIDR values, so it would fail every plan.
 ssh_public_key   = "" # optional: "ssh-ed25519 AAAA..." (pair with your /32 in allowed_ssh_cidr)
 root_volume_size = 30
-domain_name      = "code.example.com" # placeholder; the operator sets the
-# real <eip-with-dashes>.nip.io via the DOMAIN_NAME Actions secret
-# (TF_VAR_domain_name wins). Never commit a live domain here.
-alert_email    = "" # set via ALERT_EMAIL Actions secret (TF_VAR_ wins)
-git_user_name  = "" # operator identity via GIT_USER_NAME secret (TF_VAR_ wins)
-git_user_email = "" # operator identity via GIT_USER_EMAIL secret (TF_VAR_ wins)
+domain_name      = "" # supplied via DOMAIN_NAME Actions secret
+alert_email      = "" # supplied via ALERT_EMAIL Actions secret
+git_user_name    = "" # supplied via GIT_USER_NAME Actions secret
+git_user_email   = "" # supplied via GIT_USER_EMAIL Actions secret
 # SSO human gate (ADR-0014): GitHub OAuth App client ID (public) + the one
-# allowed username. Both arrive via Actions secrets (TF_VAR_ wins) and fail
-# closed when empty — oauth2-proxy denies everyone. Never commit live values.
+# allowed username. Supplied via Actions secrets and fail closed when empty.
 github_oauth_client_id = ""
 github_oauth_user      = ""
 
