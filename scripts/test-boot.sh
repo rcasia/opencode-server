@@ -226,14 +226,14 @@ if [ "$SANDBOX_LIVE" = "1" ]; then
 why_allow() {
   OUT="$(whyquery "$@")" \
     || { echo "FAIL: why query failed: $*"; printf '%s\n' "$OUT"; exit 1; }
-  printf '%s' "$OUT" | grep -q '"status":"allowed"' \
+  printf '%s' "$OUT" | grep -q '"status": *"allowed"' \
     || { echo "FAIL: expected sandbox to allow: $*"; printf '%s\n' "$OUT"; exit 1; }
   echo "PASS: sandbox allows $*"
 }
 why_deny() {
   OUT="$(whyquery "$@")" \
     || { echo "FAIL: why query failed: $*"; printf '%s\n' "$OUT"; exit 1; }
-  printf '%s' "$OUT" | grep -q '"status":"denied"' \
+  printf '%s' "$OUT" | grep -q '"status": *"denied"' \
     || { echo "FAIL: expected sandbox to deny: $*"; printf '%s\n' "$OUT"; exit 1; }
   echo "PASS: sandbox denies $*"
 }
