@@ -3,6 +3,11 @@ variable "name_prefix" {
   type        = string
 }
 
+variable "aws_region" {
+  description = "AWS region (for the EC2 auto-recovery action ARN)"
+  type        = string
+}
+
 variable "alert_email" {
   description = "Email for intrusion alarms. Empty disables the subscription (alarms still exist)."
   type        = string

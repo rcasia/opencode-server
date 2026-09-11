@@ -49,9 +49,12 @@ systemctl enable --now docker-prune.timer
 cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<CW_EOF
 {
   "agent": { "metrics_collection_interval": 60, "run_as_user": "root" },
-  "metrics": { "metrics_collected": {
+  "metrics": {
+    "append_dimensions": { "InstanceId": "\${aws:InstanceId}" },
+    "aggregation_dimensions": [["InstanceId"], ["InstanceId", "path"]],
+    "metrics_collected": {
     "mem": { "measurement": ["mem_used_percent"], "metrics_collection_interval": 60 },
-    "disk": { "measurement": ["used_percent"], "metrics_collection_interval": 60, "resources": ["/", "/var/lib/docker"] }
+    "disk": { "measurement": ["used_percent"], "metrics_collection_interval": 60, "resources": ["/", "/var/lib/docker"], "drop_device": true }
   } },
   "logs": { "logs_collected": { "files": { "collect_list": [
     { "file_path": "/opt/opencode/logs/access.log", "log_group_name": "${NAME_PREFIX}-caddy", "log_stream_name": "{instance_id}" },

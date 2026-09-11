@@ -135,7 +135,10 @@ ExecStart=/opt/opencode/switch.sh reconcile
 WantedBy=multi-user.target
 UNIT_EOF
   systemctl daemon-reload
-  systemctl enable opencode-colors.service
+  # --now (issue #44): enable alone leaves the unit dormant until the
+  # next reboot, so first boot ran both colors until then. Running
+  # reconcile immediately stops whichever color is not live.
+  systemctl enable --now opencode-colors.service
 }
 
 boot() {

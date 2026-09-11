@@ -255,25 +255,68 @@ resource "aws_cloudwatch_metric_alarm" "site_down" {
 
 # Host health (ADR-0019): the data disk (/var/lib/docker, ADR-0008) fills
 # silently — images, sessions, Caddy logs. The CloudWatch agent ships
-# mem_used_percent + disk_used_percent (see compute/user_data.sh); these
-# alarms page the same SNS topic as the intrusion alarms. Thresholds are
-# vars so the operator can tune without editing the module.
+# mem_used_percent + disk used_percent with append_dimensions InstanceId
+# (see app/host/monitoring.sh); these alarms page the same SNS topic as
+# the intrusion alarms. Thresholds are vars so the operator can tune
+# without editing the module. treat_missing_data is breaching (issue
+# #42): a silently dead agent must page, not hide in INSUFFICIENT_DATA.
 resource "aws_cloudwatch_metric_alarm" "disk_high" {
   alarm_name          = "${var.name_prefix}-disk-high"
   alarm_description   = "Data disk /var/lib/docker above ${var.disk_threshold_percent}%: prune timer or log rotation is losing"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 1
-  metric_name         = "disk_used_percent"
+  metric_name         = "used_percent"
   namespace           = "CWAgent"
   period              = 300
   statistic           = "Maximum"
   threshold           = var.disk_threshold_percent
-  treat_missing_data  = "ignore"
+  treat_missing_data  = "breaching"
   alarm_actions       = [aws_sns_topic.alerts.arn]
 
   dimensions = {
     InstanceId = var.instance_id
     path       = "/var/lib/docker"
+  }
+}
+
+# Host auto-recovery (issue #47): a single instance on failed underlying
+# hardware is a manual restart after the site-down page. EC2 recovery is
+# free and keeps instance ID, EIP, and the attached data volume; a failed
+# instance check (guest OS) gets a reboot instead. Both supported on t3
+# with EBS-only storage.
+resource "aws_cloudwatch_metric_alarm" "system_check" {
+  alarm_name          = "${var.name_prefix}-system-check"
+  alarm_description   = "EC2 system status check failed: recover to healthy hardware"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 2
+  metric_name         = "StatusCheckFailed_System"
+  namespace           = "AWS/EC2"
+  period              = 60
+  statistic           = "Maximum"
+  threshold           = 1
+  treat_missing_data  = "ignore"
+  alarm_actions       = ["arn:aws:automate:${var.aws_region}:ec2:recover", aws_sns_topic.alerts.arn]
+
+  dimensions = {
+    InstanceId = var.instance_id
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "instance_check" {
+  alarm_name          = "${var.name_prefix}-instance-check"
+  alarm_description   = "EC2 instance status check failed: reboot the guest"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 2
+  metric_name         = "StatusCheckFailed_Instance"
+  namespace           = "AWS/EC2"
+  period              = 60
+  statistic           = "Maximum"
+  threshold           = 1
+  treat_missing_data  = "ignore"
+  alarm_actions       = ["arn:aws:automate:${var.aws_region}:ec2:reboot", aws_sns_topic.alerts.arn]
+
+  dimensions = {
+    InstanceId = var.instance_id
   }
 }
 
@@ -287,7 +330,7 @@ resource "aws_cloudwatch_metric_alarm" "mem_high" {
   period              = 300
   statistic           = "Average"
   threshold           = var.mem_threshold_percent
-  treat_missing_data  = "ignore"
+  treat_missing_data  = "breaching"
   alarm_actions       = [aws_sns_topic.alerts.arn]
 
   dimensions = {
