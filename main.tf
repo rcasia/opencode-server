@@ -4,6 +4,7 @@ module "network" {
   name_prefix       = local.name_prefix
   availability_zone = local.availability_zone
   allowed_ssh_cidr  = var.allowed_ssh_cidr
+  ssh_public_key    = var.ssh_public_key
 }
 
 module "compute" {

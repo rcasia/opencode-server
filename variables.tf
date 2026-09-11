@@ -46,9 +46,14 @@ variable "instance_type" {
 }
 
 variable "allowed_ssh_cidr" {
-  description = "CIDR allowed for SSH. Restrict to your IP, e.g. 1.2.3.4/32"
+  description = "CIDR allowed for SSH. Empty disables SSH ingress (SSM-only). With ssh_public_key set, must be an explicit /32, e.g. 1.2.3.4/32."
   type        = string
-  default     = "0.0.0.0/0"
+  default     = ""
+
+  validation {
+    condition     = var.allowed_ssh_cidr == "" || (can(cidrhost(var.allowed_ssh_cidr, 0)) && can(regex("/32$", var.allowed_ssh_cidr)))
+    error_message = "allowed_ssh_cidr must be empty (SSM-only, no SSH ingress) or an explicit /32 CIDR, e.g. 1.2.3.4/32. Never 0.0.0.0/0."
+  }
 }
 
 variable "ssh_public_key" {

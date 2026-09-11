@@ -21,6 +21,13 @@ variable "availability_zone" {
 }
 
 variable "allowed_ssh_cidr" {
-  description = "CIDR allowed for SSH"
+  description = "CIDR allowed for SSH. Empty means no port-22 ingress (SSM-only). With ssh_public_key set, must be an explicit /32."
   type        = string
+}
+
+variable "ssh_public_key" {
+  description = "SSH public key. Empty means SSM-only: no port-22 ingress is created."
+  type        = string
+  default     = ""
+  sensitive   = true
 }

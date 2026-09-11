@@ -43,12 +43,17 @@ resource "aws_security_group" "server" {
   description = "Agentic coding server"
   vpc_id      = aws_vpc.main.id
 
-  ingress {
-    description = "SSH"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = [var.allowed_ssh_cidr]
+  # Port 22 exists only in SSH-key mode. SSM-only (empty ssh_public_key)
+  # gets no ingress at all, so a default/empty CIDR can never open SSH.
+  dynamic "ingress" {
+    for_each = var.ssh_public_key != "" ? [var.allowed_ssh_cidr] : []
+    content {
+      description = "SSH"
+      from_port   = 22
+      to_port     = 22
+      protocol    = "tcp"
+      cidr_blocks = [ingress.value]
+    }
   }
 
   ingress {
@@ -75,4 +80,14 @@ resource "aws_security_group" "server" {
   }
 
   tags = { Name = "${var.name_prefix}-sg" }
+
+  lifecycle {
+    # Cross-variable validation needs Terraform 1.9+, so the key/CIDR
+    # pairing is enforced here: SSM-only means no CIDR, a key requires
+    # an explicit /32 (never open).
+    precondition {
+      condition     = var.ssh_public_key == "" ? var.allowed_ssh_cidr == "" : can(regex("/32$", var.allowed_ssh_cidr))
+      error_message = "Without ssh_public_key (SSM-only), allowed_ssh_cidr must be empty; with a key, it must be an explicit /32 CIDR, e.g. 1.2.3.4/32. Never 0.0.0.0/0."
+    }
+  }
 }
