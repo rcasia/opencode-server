@@ -81,6 +81,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "app_bundle_logs" {
     id     = "expire-access-logs"
     status = "Enabled"
 
+    # Empty filter = whole bucket (provider warns without one).
+    filter {}
+
     expiration {
       days = 90
     }
@@ -162,6 +165,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "app_bundle" {
   rule {
     id     = "expire-noncurrent-versions"
     status = "Enabled"
+
+    # Empty filter = whole bucket (provider warns without one).
+    filter {}
 
     noncurrent_version_expiration {
       noncurrent_days = 45
