@@ -283,6 +283,39 @@ data "aws_iam_policy_document" "deploy_data" {
     ]
     resources = ["arn:aws:s3:::${local.audit_bucket_pattern}"]
   }
+
+  # Data-disk snapshots (issue #46): DLM policy + its service-linked
+  # role. DLM policy ARNs carry generated IDs (unscoped-able by name),
+  # so the statement scopes by action set; snapshot content stays
+  # encrypted like the source volume.
+  statement {
+    sid = "DlmSnapshots"
+    actions = [
+      "dlm:CreateLifecyclePolicy",
+      "dlm:DeleteLifecyclePolicy",
+      "dlm:GetLifecyclePolicy",
+      "dlm:GetLifecyclePolicies",
+      "dlm:ListTagsForResource",
+      "dlm:UpdateLifecyclePolicy",
+      "dlm:TagResource",
+      "dlm:UntagResource",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "DlmServiceRole"
+    actions = [
+      "iam:CreateServiceLinkedRole",
+      "iam:DeleteServiceLinkedRole",
+    ]
+    resources = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/dlm.amazonaws.com/AWSServiceRoleForSnapshotLifecycleManagement"]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:AWSServiceName"
+      values   = ["dlm.amazonaws.com"]
+    }
+  }
 }
 
 resource "aws_iam_policy" "deploy_data" {

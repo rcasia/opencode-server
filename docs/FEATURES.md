@@ -144,6 +144,8 @@ rule 10).
 
 - **Cheap by design.** Single AZ public subnet, no NAT, `t3.small`, EIP
   attached, with low-cost probes and encrypted persistent storage.
+  The data disk gets daily DLM snapshots (keep 7, cents/month);
+  restores follow `docs/restore-data-volume.md`. Rationale: ADR-0030.
 - **Cost guardrail.** A monthly AWS cost budget (default $25,
   `monthly_budget_limit_usd`) pages the same SNS topic as the intrusion
   alarms on actual spend ≥100% and on forecasted spend ≥100%. Current

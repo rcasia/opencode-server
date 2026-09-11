@@ -33,6 +33,7 @@ trade-offs, and never rewrite an accepted record — supersede it with a new one
 | [0027](0027-nono-musl-install.md) | nono install via static musl tarball (RPM path removed) | Accepted | 2026-09-11 |
 | [0028](0028-per-service-env-files.md) | Per-service env files instead of a shared app.env | Accepted | 2026-09-11 |
 | [0029](0029-ami-rotation-policy.md) | AMI rotation is deliberate, never lookup drift | Accepted | 2026-09-11 |
+| [0030](0030-dlm-data-snapshots.md) | Data-disk backup via DLM snapshots | Accepted | 2026-09-11 |
 
 ## Creating a New ADR
 

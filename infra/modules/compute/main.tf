@@ -242,4 +242,47 @@ resource "aws_volume_attachment" "data" {
   device_name = "/dev/sdf"
   volume_id   = aws_ebs_volume.data.id
   instance_id = aws_instance.server.id
+  # Clean detach (issue #46): the old instance is being terminated
+  # anyway — stop it first so the OS unmounts /var/lib/docker instead
+  # of tearing a mounted ext4 out from under running containers.
+  stop_instance_before_detaching = true
+}
+
+# Data-disk backup (issue #46, ADR-0030): daily DLM snapshots of the
+# persistent volume (tag-targeted), keep 7. Zero daemons, no host IAM,
+# cents/month. The service-linked role is managed here so first apply
+# converges without console clicks.
+resource "aws_iam_service_linked_role" "dlm" {
+  aws_service_name = "dlm.amazonaws.com"
+  description      = "${var.name_prefix} data-volume snapshots (issue #46)"
+}
+
+resource "aws_dlm_lifecycle_policy" "data" {
+  description        = "${var.name_prefix}-data daily snapshots"
+  state              = "ENABLED"
+  execution_role_arn = aws_iam_service_linked_role.dlm.arn
+
+  policy_details {
+    resource_types = ["VOLUME"]
+
+    target_tags = {
+      Name = "${var.name_prefix}-data"
+    }
+
+    schedule {
+      name = "daily"
+
+      create_rule {
+        interval      = 24
+        interval_unit = "HOURS"
+        times         = ["03:00"]
+      }
+
+      retain_rule {
+        count = 7
+      }
+
+      copy_tags = true
+    }
+  }
 }
