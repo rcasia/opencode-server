@@ -70,6 +70,30 @@ variable "opencode_password_parameter" {
   default     = "/opencode/server-password"
 }
 
+variable "github_oauth_client_id" {
+  description = "Public client ID of the GitHub OAuth App used for web SSO (secret lives in SSM)"
+  type        = string
+  default     = ""
+}
+
+variable "github_oauth_user" {
+  description = "Single GitHub username allowed through the SSO gate (oauth2-proxy --github-user)"
+  type        = string
+  default     = ""
+}
+
+variable "github_oauth_secret_parameter" {
+  description = "SSM SecureString parameter holding the GitHub OAuth App client secret"
+  type        = string
+  default     = "/opencode/github-oauth-secret"
+}
+
+variable "oauth_cookie_secret_parameter" {
+  description = "SSM SecureString parameter holding the oauth2-proxy cookie secret (32-byte base64url)"
+  type        = string
+  default     = "/opencode/oauth-cookie-secret"
+}
+
 variable "alert_email" {
   description = "Email for intrusion alarms. Empty disables the email subscription."
   type        = string

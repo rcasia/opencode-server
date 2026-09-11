@@ -75,16 +75,30 @@ done
 test -f /opt/opencode/compose.yaml || { echo "app bundle never appeared"; exit 1; }
 cat > /opt/opencode/app.env <<ENV_EOF
 DOMAIN=${domain_name}
+OAUTH2_PROXY_CLIENT_ID=${github_oauth_client_id}
+OAUTH2_PROXY_GITHUB_USERS=${github_oauth_user}
+OAUTH2_PROXY_REDIRECT_URL=https://${domain_name}/oauth2/callback
 ENV_EOF
 
-# OPENCODE_SERVER_PASSWORD from SSM (ADR-0004): never in repo/state/logs.
-# set -x at the top would otherwise echo $VALUE into
+# Secrets from SSM (ADR-0004, ADR-0014): never in repo/state/logs.
+# set -x at the top would otherwise echo values into
 # /var/log/cloud-init-output.log, which ships to the -boot log group.
-# Disable xtrace around the secret, then unset it.
+# Disable xtrace around the secrets, then unset them. This block also
+# derives BASIC_AUTH (base64 of opencode:<password>) so Caddy can inject
+# the machine-only backend password after the GitHub SSO gate — the human
+# never types the shared password (issue #17).
 set +x
 VALUE=$(aws ssm get-parameter --name "${opencode_password_parameter}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
 printf 'OPENCODE_SERVER_PASSWORD=%s\n' "$VALUE" >> /opt/opencode/app.env
-unset VALUE
+BASIC=$(printf 'opencode:%s' "$VALUE" | base64 | tr -d '\n')
+printf 'BASIC_AUTH=%s\n' "$BASIC" >> /opt/opencode/app.env
+unset VALUE BASIC
+OAUTH_SECRET=$(aws ssm get-parameter --name "${github_oauth_secret_parameter}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
+printf 'OAUTH2_PROXY_CLIENT_SECRET=%s\n' "$OAUTH_SECRET" >> /opt/opencode/app.env
+unset OAUTH_SECRET
+COOKIE_SECRET=$(aws ssm get-parameter --name "${oauth_cookie_secret_parameter}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
+printf 'OAUTH2_PROXY_COOKIE_SECRET=%s\n' "$COOKIE_SECRET" >> /opt/opencode/app.env
+unset COOKIE_SECRET
 set -x
 chmod 600 /opt/opencode/app.env
 

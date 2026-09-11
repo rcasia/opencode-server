@@ -16,6 +16,9 @@ services:
       - ./logs:/var/log/caddy
     env_file:
       - app.env
+    depends_on:
+      - opencode
+      - oauth2-proxy
     healthcheck:
       # Caddy admin API needs no auth; 401s on :443 would false-negative.
       # 127.0.0.1 (not localhost): busybox wget tries ::1 first and fails.
@@ -39,6 +42,28 @@ services:
       BROWSER: "true"
     env_file:
       - app.env
+
+  # Human gate for passwordless GitHub SSO (ADR-0014, issue #17). No
+  # published ports — only reachable via Caddy forward_auth. Static knobs
+  # live here; secrets + IDs arrive via app.env (OAUTH2_PROXY_* names, so
+  # no compose interpolation is needed). Distroless base has no shell, so
+  # no healthcheck — liveness is restart=always plus Caddy's gate.
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.4@sha256:b1b2021fe8f4004573e8d690dec6c7bb29cc44364572cf8510a05bf3a0ae2ded
+    restart: always
+    expose:
+      - "4180"
+    env_file:
+      - app.env
+    environment:
+      OAUTH2_PROXY_PROVIDER: github
+      OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
+      OAUTH2_PROXY_REVERSE_PROXY: "true"
+      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
+      OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
+      OAUTH2_PROXY_COOKIE_SECURE: "true"
+      OAUTH2_PROXY_UPSTREAMS: static://202
 
 volumes:
   caddy-data:

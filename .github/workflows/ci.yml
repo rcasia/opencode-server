@@ -305,7 +305,7 @@ jobs:
           aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --region "${{ env.AWS_REGION }}"
           aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --region "${{ env.AWS_REGION }}"
 
-      - name: Smoke test (site answers through TLS + auth gate)
+      - name: Smoke test (site answers through TLS + SSO gate)
         if: steps.plan.outputs.exitcode == '2'
         run: |
           terraform output
@@ -313,11 +313,14 @@ jobs:
           URL="$(terraform output -raw opencode_url)"
           case "$URL" in https://*) ;; *) echo "no public URL ($URL), skipping HTTP check"; exit 0;; esac
           for _ in $(seq 1 30); do
-            CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$URL" || true)"
-            if [ "$CODE" = "401" ]; then echo "site up: 401 auth gate at $URL"; exit 0; fi
+            RESP="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 10 "$URL" || true)"
+            case "$RESP" in
+              302*oauth2*) echo "site up: SSO gate at $URL ($RESP)"; exit 0;;
+              401*) echo "site up: legacy 401 auth gate at $URL"; exit 0;;
+            esac
             sleep 20
           done
-          echo "site never returned 401 (last: $CODE)"; exit 1
+          echo "site never returned the SSO gate (last: $RESP)"; exit 1
 
   deploy-app:
     needs: [pre-commit, deploy-prod, changes]
@@ -381,13 +384,16 @@ jobs:
           done
           [ "$STATUS" = "Success" ]
 
-      - name: Smoke test (site answers through TLS + auth gate)
+      - name: Smoke test (site answers through TLS + SSO gate)
         run: |
           URL="$(terraform output -raw opencode_url)"
           case "$URL" in https://*) ;; *) echo "no public URL ($URL), skipping HTTP check"; exit 0;; esac
           for _ in $(seq 1 30); do
-            CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$URL" || true)"
-            if [ "$CODE" = "401" ]; then echo "site up: 401 auth gate at $URL"; exit 0; fi
+            RESP="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 10 "$URL" || true)"
+            case "$RESP" in
+              302*oauth2*) echo "site up: SSO gate at $URL ($RESP)"; exit 0;;
+              401*) echo "site up: legacy 401 auth gate at $URL"; exit 0;;
+            esac
             sleep 20
           done
-          echo "site never returned 401 (last: $CODE)"; exit 1
+          echo "site never returned the SSO gate (last: $RESP)"; exit 1

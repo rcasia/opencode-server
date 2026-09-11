@@ -40,6 +40,25 @@ resource "aws_iam_role_policy" "opencode_password" {
   policy = data.aws_iam_policy_document.opencode_password.json
 }
 
+# SSO secrets (ADR-0014): the instance alone can read the GitHub OAuth
+# client secret and the oauth2-proxy cookie secret. Nothing else (deploy
+# role, CI, state) ever sees these values — same shape as ADR-0004.
+data "aws_iam_policy_document" "oauth_secrets" {
+  statement {
+    actions = ["ssm:GetParameter"]
+    resources = [
+      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${var.github_oauth_secret_parameter}",
+      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${var.oauth_cookie_secret_parameter}",
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "oauth_secrets" {
+  name   = "${var.name_prefix}-oauth-secrets"
+  role   = aws_iam_role.server.name
+  policy = data.aws_iam_policy_document.oauth_secrets.json
+}
+
 data "aws_iam_policy_document" "app_bundle" {
   statement {
     actions   = ["s3:GetObject"]
@@ -79,15 +98,19 @@ resource "aws_instance" "server" {
   # this server is cattle: bootstrap changes must replace it.
   user_data_replace_on_change = true
   user_data = templatefile("${path.module}/user_data.sh", {
-    name_prefix                 = var.name_prefix
-    aws_region                  = var.aws_region
-    opencode_password_parameter = var.opencode_password_parameter
-    domain_name                 = var.domain_name
-    data_volume_id              = aws_ebs_volume.data.id
-    git_user_name               = var.git_user_name
-    git_user_email              = var.git_user_email
-    github_token_parameter      = var.github_token_parameter
-    app_bundle_bucket           = var.app_bundle_bucket
+    name_prefix                   = var.name_prefix
+    aws_region                    = var.aws_region
+    opencode_password_parameter   = var.opencode_password_parameter
+    github_oauth_client_id        = var.github_oauth_client_id
+    github_oauth_user             = var.github_oauth_user
+    github_oauth_secret_parameter = var.github_oauth_secret_parameter
+    oauth_cookie_secret_parameter = var.oauth_cookie_secret_parameter
+    domain_name                   = var.domain_name
+    data_volume_id                = aws_ebs_volume.data.id
+    git_user_name                 = var.git_user_name
+    git_user_email                = var.git_user_email
+    github_token_parameter        = var.github_token_parameter
+    app_bundle_bucket             = var.app_bundle_bucket
   })
 
   root_block_device {
