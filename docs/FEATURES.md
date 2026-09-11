@@ -16,6 +16,15 @@ rule 10).
   backend colors (`opencode-blue`/`opencode-green`, one live) switch via
   `switch.sh` over SSM: the idle color starts, must answer authed `GET /`
   through Caddy, and only then does the live color stop.
+- **Constrained session recovery.** Deploys drain first: `switch.sh`
+  polls `GET /session/status` on the live color and delays its stop
+  while a run is active (bounded ~5 min, then proceeds). After the
+  switch (and at boot via `reconcile`), it probes the live color for
+  sessions interrupted by the deploy (dangling user message + idle
+  status + updated near the deploy), marks them
+  `[interrupted-by-deploy]`, and auto-retries via `prompt_async` only
+  when `GET /session/:id/diff` is empty; sessions with file changes
+  stay marked for human retry (revert/fork first). Rationale: ADR-0022.
 - **Managed OpenCode configuration.** `app/opencode.json` is part of the
   application bundle and is mounted read-only as the global OpenCode config
   inside both backend colors. It contains model defaults and provider
