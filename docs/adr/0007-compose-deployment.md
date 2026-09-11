@@ -117,6 +117,15 @@ endpoints stubbed, and runs in CI inside the `local` job. Catches script
 bugs; EC2-only races still need the real box. Telemetry calls must never
 be fatal to boot (agent `fetch-config` warns and continues).
 
+## Amendment 4 (2026-09-11)
+
+`make test-bootstrap` removed entirely (script, `Dockerfile.boot`,
+`stubs/`, target, all references). Measured 645s wall cached — an
+11-minute gate nobody runs is no gate at all. `user_data.sh` is now
+proven by shellcheck + `validate` + real deploys: the instance is
+cattle (`user_data_replace_on_change`), and the smoke test gates every
+replacement. The EC2-only race caveat stands.
+
 ## Related Decisions
 
 - ADR-0001 (Caddy + localhost backend — kept, repackaged)

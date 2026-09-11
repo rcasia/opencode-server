@@ -76,8 +76,9 @@ fail-open conditions).
 - `bundle.tf`: versioned, encrypted, private bucket + `app_bundle_bucket` output.
 - `deploy-prod` uploads pre-plan and post-apply; `user_data` fetches with
   5-min retries; `deploy-app` runs pull + up via `AWS-RunShellScript`.
-- `app/stubs/aws` fakes `s3 cp` from `/fixtures` so the bootstrap build
-  covers the fetch path.
+- Note 2026-09-11: the `app/stubs/aws` fake for the bootstrap build died
+  with it (ADR-0007 amendment 4); the fetch path is proven by real
+  deploys with retries, not by mock.
 
 ## Related Decisions
 

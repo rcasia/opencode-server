@@ -94,8 +94,10 @@ after that — including the deletion of that policy — is a commit.
   - `iam:*` on the deploy role, its policy, and the OIDC provider
     (adoption + convergence)
   - `sts:GetCallerIdentity`
-- The bootstrap test (`test-bootstrap.sh`) stays a local `make` target —
-  too slow for the pipeline by explicit choice.
+- Note 2026-09-11: the bootstrap test (`test-bootstrap.sh`) was removed
+  the same week it was cached — measured 645s wall, never worth running
+  (ADR-0007 amendment 4). No automated coverage of rendered `user_data`
+  remains; shellcheck + real deploys carry it.
 
 ## Related Decisions
 

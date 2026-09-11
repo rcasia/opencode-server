@@ -156,26 +156,14 @@ Caddy + opencode run as containers from `app/compose.yaml` (images pinned
 
 ```bash
 make test-boot   # full chain locally: compose up, HTTPS, 401 without creds, 200 with
-make test-bootstrap  # executes the exact rendered user_data in AL2023 (needs local-up)
 ```
 
 `test-boot` uses dummy env (never committed) and tears everything down
 afterwards. It proves installs, config, proxy, and auth — everything except
-Let's Encrypt issuance, which needs the public IP.
-
-`test-bootstrap` covers the other layer: it applies the mock stack, extracts
-the exact `user_data` Terraform would run, and executes it in an AL2023
-container (`app/Dockerfile.boot`) with only cloud endpoints stubbed
-(SSM, systemd, mount, Docker daemon). Catches script bugs deterministically;
-EC2-only races (attach timing) still need the real box. It runs locally
-only — deliberately not in the pipeline (too slow); run it via `make`
-when changing `user_data.sh`.
-
-Speed: the Dockerfile builds in two stages — `bootenv` (all installs,
-published to GHCR, rebuilt rarely) and `test` (the script, re-runs in a
-few minutes). Registry layer caching means unchanged inputs rebuild in
-seconds, locally and in CI. First pull creates the `opencode-boot-test`
-package — set it private.
+Let's Encrypt issuance, which needs the public IP. `user_data.sh` changes
+are proven by shellcheck plus real deploys (the instance is cattle and the
+smoke test gates); the old AL2023-execution test was removed — measured
+~11 min cached, never worth running (see ADR-0007 amendment 4).
 
 Images stay pinned `tag@digest` in `app/compose.yaml`. Dependabot's
 `docker-compose` ecosystem proposes bumps (same 21-day cooldown policy);

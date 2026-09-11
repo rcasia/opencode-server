@@ -81,6 +81,8 @@ git health.
   5-min race), the helper verifies `credential.helper` stuck, and the
   `deploy-app` SSM step re-runs the helper — container replacement wipes
   gitconfig, so boot-only application left app deploys without git auth.
+  (The AL2023-execution test that once covered the helper was removed
+  the same day as too slow; see ADR-0007 amendment 4.)
 
 ## Related Decisions
 
