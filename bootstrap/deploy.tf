@@ -1,11 +1,15 @@
-# Deploy trust (one-time bootstrap, applied with user credentials).
+# Deploy trust (pipeline-applied bootstrap; see ADR-0012, ADR-0013).
 #
-# The root stack runs AS aws_iam_role.deploy via GitHub OIDC, so this
-# policy must allow everything the root stack manages plus what the CI
+# The root stack runs AS aws_iam_role.deploy via GitHub OIDC, so these
+# policies must allow everything the root stack manages plus what the CI
 # steps call directly (bundle upload, ec2 wait, SSM rolling restart).
-# It deliberately cannot touch itself: bootstrap owns this role, and the
-# role never manages itself. Missing permission = red deploy, fixed here
-# in versioned code — never console clicks (see ADR-0012).
+# The role manages its own trust (DeploySelf + DeployOIDC) so the
+# pipeline converges without a laptop. Missing permission = red deploy,
+# fixed here in versioned code — never console clicks.
+#
+# One IAM policy caps at 6144 bytes, so the trust is split into four
+# scoped policies (compute / data / identity / observe), each well under
+# the limit. Statements keep explicit action lists (no service-wide `*`).
 
 # Thumbprint derived live: survives GitHub CA rotations, nothing to hardcode.
 data "tls_certificate" "github" {
@@ -64,73 +68,9 @@ locals {
   bundle_bucket_pattern = "${var.project}-${var.environment}-app-bundle-*"
 }
 
-data "aws_iam_policy_document" "deploy" {
-  # Remote state backend (S3 native locking: the lockfile is an object too).
-  statement {
-    sid       = "StateBackend"
-    actions   = ["s3:ListBucket"]
-    resources = ["arn:aws:s3:::${local.state_bucket_pattern}"]
-  }
-
-  statement {
-    sid       = "StateObjects"
-    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
-    resources = ["arn:aws:s3:::${local.state_bucket_pattern}/opencode-server/*"]
-  }
-
-  # App bundle bucket: full lifecycle (bundle.tf manages the bucket
-  # itself; CI uploads compose.yaml + Caddyfile into app/).
-  statement {
-    sid = "BundleBucket"
-    actions = [
-      "s3:CreateBucket",
-      "s3:DeleteBucket",
-      "s3:ListBucket",
-      "s3:ListBucketVersions",
-      "s3:GetBucketLocation",
-      "s3:GetBucketPolicy",
-      "s3:GetBucketCORS",
-      "s3:GetBucketWebsite",
-      "s3:GetBucketLogging",
-      "s3:GetLifecycleConfiguration",
-      "s3:GetBucketNotification",
-      "s3:GetReplicationConfiguration",
-      "s3:GetBucketRequestPayment",
-      "s3:GetBucketObjectLockConfiguration",
-      "s3:GetAccelerateConfiguration",
-      "s3:GetBucketAcl",
-      "s3:GetBucketVersioning",
-      "s3:PutBucketVersioning",
-      "s3:GetEncryptionConfiguration",
-      "s3:PutEncryptionConfiguration",
-      "s3:GetBucketPublicAccessBlock",
-      "s3:PutBucketPublicAccessBlock",
-      "s3:GetBucketTagging",
-      "s3:PutBucketTagging",
-    ]
-    resources = ["arn:aws:s3:::${local.bundle_bucket_pattern}"]
-  }
-
-  statement {
-    sid = "BundleObjects"
-    actions = [
-      "s3:GetObject",
-      "s3:PutObject",
-      "s3:DeleteObject",
-      "s3:GetObjectVersion",
-      "s3:DeleteObjectVersion",
-    ]
-    resources = ["arn:aws:s3:::${local.bundle_bucket_pattern}/app/*"]
-  }
-
-  statement {
-    sid       = "S3ListAll"
-    actions   = ["s3:ListAllMyBuckets"]
-    resources = ["*"]
-  }
-
-  # EC2 + networking: reads are wildcard by API design; management is an
-  # explicit action list (no ec2:*).
+# EC2 + networking: reads are wildcard by API design; management is an
+# explicit action list (no ec2:*).
+data "aws_iam_policy_document" "deploy_compute" {
   statement {
     sid       = "ComputeRead"
     actions   = ["ec2:Describe*", "ec2:Get*"]
@@ -186,9 +126,130 @@ data "aws_iam_policy_document" "deploy" {
     ]
     resources = ["*"]
   }
+}
 
-  # Server role (modules/compute): full lifecycle, scoped to the project
-  # ec2-role name. Never the deploy role itself.
+resource "aws_iam_policy" "deploy_compute" {
+  name   = "${var.project}-server-deploy-compute"
+  policy = data.aws_iam_policy_document.deploy_compute.json
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_compute" {
+  role       = aws_iam_role.deploy.name
+  policy_arn = aws_iam_policy.deploy_compute.arn
+}
+
+# State backend + app bundle buckets: full lifecycle (bootstrap and
+# bundle.tf manage the buckets themselves; CI up/downloads app/*).
+# Read bundle included: the provider refreshes buckets via GetBucket*
+# calls, and missing reads fail imports as 409s on re-create.
+data "aws_iam_policy_document" "deploy_data" {
+  statement {
+    sid       = "StateBackend"
+    actions   = ["s3:ListBucket"]
+    resources = ["arn:aws:s3:::${local.state_bucket_pattern}"]
+  }
+
+  statement {
+    sid       = "StateObjects"
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    resources = ["arn:aws:s3:::${local.state_bucket_pattern}/opencode-server/*"]
+  }
+
+  statement {
+    sid = "BundleBucket"
+    actions = [
+      "s3:CreateBucket",
+      "s3:DeleteBucket",
+      "s3:ListBucket",
+      "s3:ListBucketVersions",
+      "s3:GetBucketLocation",
+      "s3:GetBucketPolicy",
+      "s3:GetBucketCORS",
+      "s3:GetBucketWebsite",
+      "s3:GetBucketLogging",
+      "s3:GetLifecycleConfiguration",
+      "s3:GetBucketNotification",
+      "s3:GetReplicationConfiguration",
+      "s3:GetBucketRequestPayment",
+      "s3:GetBucketObjectLockConfiguration",
+      "s3:GetAccelerateConfiguration",
+      "s3:GetBucketAcl",
+      "s3:GetBucketVersioning",
+      "s3:PutBucketVersioning",
+      "s3:GetEncryptionConfiguration",
+      "s3:PutEncryptionConfiguration",
+      "s3:GetBucketPublicAccessBlock",
+      "s3:PutBucketPublicAccessBlock",
+      "s3:GetBucketTagging",
+      "s3:PutBucketTagging",
+    ]
+    resources = ["arn:aws:s3:::${local.bundle_bucket_pattern}"]
+  }
+
+  statement {
+    sid = "BundleObjects"
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:DeleteObject",
+      "s3:GetObjectVersion",
+      "s3:DeleteObjectVersion",
+    ]
+    resources = ["arn:aws:s3:::${local.bundle_bucket_pattern}/app/*"]
+  }
+
+  statement {
+    sid = "StateBucket"
+    actions = [
+      "s3:CreateBucket",
+      "s3:DeleteBucket",
+      "s3:ListBucket",
+      "s3:ListBucketVersions",
+      "s3:GetBucketLocation",
+      "s3:GetBucketPolicy",
+      "s3:GetBucketCORS",
+      "s3:GetBucketWebsite",
+      "s3:GetBucketLogging",
+      "s3:GetLifecycleConfiguration",
+      "s3:GetBucketNotification",
+      "s3:GetReplicationConfiguration",
+      "s3:GetBucketRequestPayment",
+      "s3:GetBucketObjectLockConfiguration",
+      "s3:GetAccelerateConfiguration",
+      "s3:GetBucketAcl",
+      "s3:GetBucketVersioning",
+      "s3:PutBucketVersioning",
+      "s3:GetEncryptionConfiguration",
+      "s3:PutEncryptionConfiguration",
+      "s3:GetBucketPublicAccessBlock",
+      "s3:PutBucketPublicAccessBlock",
+      "s3:GetBucketTagging",
+      "s3:PutBucketTagging",
+    ]
+    resources = ["arn:aws:s3:::${local.state_bucket_pattern}"]
+  }
+
+  statement {
+    sid       = "S3ListAll"
+    actions   = ["s3:ListAllMyBuckets"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_policy" "deploy_data" {
+  name   = "${var.project}-server-deploy-data"
+  policy = data.aws_iam_policy_document.deploy_data.json
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_data" {
+  role       = aws_iam_role.deploy.name
+  policy_arn = aws_iam_policy.deploy_data.arn
+}
+
+# IAM lifecycle: the server role/profile (modules/compute) plus the
+# deploy trust itself (DeploySelf + DeployOIDC), so the pipeline
+# converges without a laptop.
+data "aws_iam_policy_document" "deploy_identity" {
   statement {
     sid = "ServerRole"
     actions = [
@@ -242,7 +303,72 @@ data "aws_iam_policy_document" "deploy" {
     }
   }
 
-  # Intrusion alerting + uptime (modules/monitoring).
+  statement {
+    sid = "DeploySelf"
+    actions = [
+      "iam:CreateRole",
+      "iam:GetRole",
+      "iam:DeleteRole",
+      "iam:UpdateRole",
+      "iam:UpdateAssumeRolePolicy",
+      "iam:PutRolePolicy",
+      "iam:GetRolePolicy",
+      "iam:DeleteRolePolicy",
+      "iam:ListRolePolicies",
+      "iam:AttachRolePolicy",
+      "iam:DetachRolePolicy",
+      "iam:ListAttachedRolePolicies",
+      "iam:TagRole",
+      "iam:UntagRole",
+      "iam:CreatePolicy",
+      "iam:GetPolicy",
+      "iam:DeletePolicy",
+      "iam:ListPolicyVersions",
+      "iam:CreatePolicyVersion",
+      "iam:DeletePolicyVersion",
+      "iam:GetPolicyVersion",
+      "iam:TagPolicy",
+      "iam:UntagPolicy",
+    ]
+    resources = [
+      "arn:aws:iam::*:role/${var.project}-server-deploy",
+      "arn:aws:iam::*:policy/${var.project}-server-deploy*",
+    ]
+  }
+
+  statement {
+    sid = "DeployOIDC"
+    actions = [
+      "iam:CreateOpenIDConnectProvider",
+      "iam:DeleteOpenIDConnectProvider",
+      "iam:GetOpenIDConnectProvider",
+      "iam:UpdateOpenIDConnectProviderThumbprint",
+      "iam:TagOpenIDConnectProvider",
+      "iam:UntagOpenIDConnectProvider",
+    ]
+    resources = ["arn:aws:iam::*:oidc-provider/token.actions.githubusercontent.com"]
+  }
+
+  statement {
+    sid       = "Identity"
+    actions   = ["sts:GetCallerIdentity"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_policy" "deploy_identity" {
+  name   = "${var.project}-server-deploy-identity"
+  policy = data.aws_iam_policy_document.deploy_identity.json
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_identity" {
+  role       = aws_iam_role.deploy.name
+  policy_arn = aws_iam_policy.deploy_identity.arn
+}
+
+# Intrusion alerting + uptime (modules/monitoring) and the rolling app
+# restart (deploy-app): SSM RunShellScript on the server.
+data "aws_iam_policy_document" "deploy_observe" {
   statement {
     sid = "Alerts"
     actions = [
@@ -305,7 +431,6 @@ data "aws_iam_policy_document" "deploy" {
     resources = ["*"]
   }
 
-  # Rolling app restart (deploy-app): SSM RunShellScript on the server.
   statement {
     sid = "RollingRestart"
     actions = [
@@ -316,102 +441,14 @@ data "aws_iam_policy_document" "deploy" {
     ]
     resources = ["*"]
   }
-
-  statement {
-    sid       = "Identity"
-    actions   = ["sts:GetCallerIdentity"]
-    resources = ["*"]
-  }
-
-  # Bootstrap self-management: the pipeline applies bootstrap/ AS this
-  # role, so the role must manage its own trust (DeploySelf + DeployOIDC)
-  # and the state bucket lifecycle (StateBucket). The one-time manual
-  # bridge policy is deleted by the bootstrap job once this converges.
-  statement {
-    sid = "DeploySelf"
-    actions = [
-      "iam:CreateRole",
-      "iam:GetRole",
-      "iam:DeleteRole",
-      "iam:UpdateRole",
-      "iam:UpdateAssumeRolePolicy",
-      "iam:PutRolePolicy",
-      "iam:GetRolePolicy",
-      "iam:DeleteRolePolicy",
-      "iam:ListRolePolicies",
-      "iam:AttachRolePolicy",
-      "iam:DetachRolePolicy",
-      "iam:ListAttachedRolePolicies",
-      "iam:TagRole",
-      "iam:UntagRole",
-      "iam:CreatePolicy",
-      "iam:GetPolicy",
-      "iam:DeletePolicy",
-      "iam:ListPolicyVersions",
-      "iam:CreatePolicyVersion",
-      "iam:DeletePolicyVersion",
-      "iam:GetPolicyVersion",
-      "iam:TagPolicy",
-      "iam:UntagPolicy",
-    ]
-    resources = [
-      "arn:aws:iam::*:role/${var.project}-server-deploy",
-      "arn:aws:iam::*:policy/${var.project}-server-deploy",
-    ]
-  }
-
-  statement {
-    sid = "DeployOIDC"
-    actions = [
-      "iam:CreateOpenIDConnectProvider",
-      "iam:DeleteOpenIDConnectProvider",
-      "iam:GetOpenIDConnectProvider",
-      "iam:UpdateOpenIDConnectProviderThumbprint",
-      "iam:TagOpenIDConnectProvider",
-      "iam:UntagOpenIDConnectProvider",
-    ]
-    resources = ["arn:aws:iam::*:oidc-provider/token.actions.githubusercontent.com"]
-  }
-
-  # State bucket lifecycle (bootstrap manages the bucket itself).
-  statement {
-    sid = "StateBucket"
-    actions = [
-      "s3:CreateBucket",
-      "s3:DeleteBucket",
-      "s3:ListBucket",
-      "s3:ListBucketVersions",
-      "s3:GetBucketLocation",
-      "s3:GetBucketPolicy",
-      "s3:GetBucketCORS",
-      "s3:GetBucketWebsite",
-      "s3:GetBucketLogging",
-      "s3:GetLifecycleConfiguration",
-      "s3:GetBucketNotification",
-      "s3:GetReplicationConfiguration",
-      "s3:GetBucketRequestPayment",
-      "s3:GetBucketObjectLockConfiguration",
-      "s3:GetAccelerateConfiguration",
-      "s3:GetBucketAcl",
-      "s3:GetBucketVersioning",
-      "s3:PutBucketVersioning",
-      "s3:GetEncryptionConfiguration",
-      "s3:PutEncryptionConfiguration",
-      "s3:GetBucketPublicAccessBlock",
-      "s3:PutBucketPublicAccessBlock",
-      "s3:GetBucketTagging",
-      "s3:PutBucketTagging",
-    ]
-    resources = ["arn:aws:s3:::${local.state_bucket_pattern}"]
-  }
 }
 
-resource "aws_iam_policy" "deploy" {
-  name   = "${var.project}-server-deploy"
-  policy = data.aws_iam_policy_document.deploy.json
+resource "aws_iam_policy" "deploy_observe" {
+  name   = "${var.project}-server-deploy-observe"
+  policy = data.aws_iam_policy_document.deploy_observe.json
 }
 
-resource "aws_iam_role_policy_attachment" "deploy" {
+resource "aws_iam_role_policy_attachment" "deploy_observe" {
   role       = aws_iam_role.deploy.name
-  policy_arn = aws_iam_policy.deploy.arn
+  policy_arn = aws_iam_policy.deploy_observe.arn
 }
