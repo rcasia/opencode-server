@@ -83,6 +83,8 @@ services:
           memory: 512M
           pids: 256
     pids_limit: 256
+    cap_drop:
+      - ALL
     cap_add:
       - SYS_PTRACE
     security_opt:
@@ -114,6 +116,8 @@ services:
           memory: 512M
           pids: 256
     pids_limit: 256
+    cap_drop:
+      - ALL
     cap_add:
       - SYS_PTRACE
     security_opt:

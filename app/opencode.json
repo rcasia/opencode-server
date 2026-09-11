@@ -5,7 +5,17 @@
   "model": "anthropic/claude-sonnet-4-5",
   "small_model": "anthropic/claude-haiku-4-5",
   "permission": {
-    "*": "allow"
+    "read": "allow",
+    "edit": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "list": "allow",
+    "bash": "ask",
+    "task": "allow",
+    "external_directory": "ask",
+    "todowrite": "allow",
+    "webfetch": "ask",
+    "websearch": "ask"
   },
   "compaction": {
     "auto": true,
