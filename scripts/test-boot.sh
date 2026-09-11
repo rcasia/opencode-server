@@ -195,11 +195,12 @@ sandbox() {
 # hosts running the plain-backend override), they self-skip instead of
 # failing: the serving/switch asserts above still prove the wiring.
 SANDBOX_LIVE=0
-if sandbox true >/dev/null 2>&1; then
+if SANDBOX_DIAG="$(sandbox true 2>&1)"; then
   SANDBOX_LIVE=1
   echo "PASS: sandbox initializes in backend (enforcement probes apply)"
 else
   echo "SKIP: sandbox unavailable in backend on this host (enforcement probes skipped)"
+  printf '%s\n' "$SANDBOX_DIAG" | head -n 15
 fi
 # Mount cut holds with or without a live sandbox (plain exec sees mounts).
 docker compose exec -T opencode-blue test '!' -e /var/run/docker.sock \
