@@ -37,26 +37,15 @@ mount -a
 systemctl enable --now docker
 usermod -aG docker ec2-user || true
 
-# AWS CLI v2 (SSM password fetch below). Downloaded over TLS from AWS's
+# AWS CLI v2 (SSM secret fetch below). Downloaded over TLS from AWS's
 # canonical install URL (no versioned artifact exists that stays current).
-# No checksum to verify against: AWS publishes GPG .sig files but no
-# sha256, and automating GPG at boot would embed a rotating public key
-# whose rotation would brick unattended boots — so TLS plus fail-loud
-# unzip/install is the deliberate trade-off (ADR-0003).
 curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
 unzip -q -o /tmp/awscliv2.zip -d /tmp
 /tmp/aws/install --update 2>/dev/null || /tmp/aws/install
 rm -rf /tmp/aws /tmp/awscliv2.zip
 
-# Docker Compose plugin: dnf first, pinned GitHub fallback for the host
-# arch. The fallback stays because AL2023 repos are not guaranteed to
-# carry docker-compose-plugin on every AMI revision — but it never tracks
-# `latest`: COMPOSE_VERSION and the per-arch sha256 below bump together as
-# one reviewed change (hashes are the release's published .sha256 assets).
+# Docker Compose plugin: dnf first, pinned GitHub fallback for the host arch.
 dnf install -y docker-compose-plugin || {
-  # Bare $VAR (no braces): templatefile only interpolates dollar-brace
-  # sequences, so these pass through untouched, and shellcheck tracks
-  # them normally.
   COMPOSE_VERSION="v5.5.1"
   ARCH=$(uname -m)
   case "$ARCH" in
@@ -74,22 +63,20 @@ docker compose version
 
 # App stack: fetched from the S3 bundle (ADR-0011, ADR-0015), never baked
 # into this script, so app changes deploy without replacing the instance.
-# rm -rf first: a previous boot once left Caddyfile behind as a directory
-# (Docker bind-mount auto-creation), which made `cat` fail and killed boot.
 mkdir -p /opt/opencode/logs
 ls -la /opt/opencode/
-rm -rf /opt/opencode/compose.yaml /opt/opencode/Caddyfile /opt/opencode/switch.sh
-# Retry: the bundle may land seconds after boot starts (bucket-creating
-# applies upload it post-apply). Fail loud if it never appears.
+rm -rf /opt/opencode/compose.yaml /opt/opencode/Caddyfile /opt/opencode/switch.sh /opt/opencode/opencode.json
 for _ in $(seq 1 60); do
   aws s3 cp "s3://${app_bundle_bucket}/app/compose.yaml" /opt/opencode/compose.yaml --region "${aws_region}" \
     && aws s3 cp "s3://${app_bundle_bucket}/app/Caddyfile" /opt/opencode/Caddyfile --region "${aws_region}" \
     && aws s3 cp "s3://${app_bundle_bucket}/app/switch.sh" /opt/opencode/switch.sh --region "${aws_region}" \
+    && aws s3 cp "s3://${app_bundle_bucket}/app/opencode.json" /opt/opencode/opencode.json --region "${aws_region}" \
     && break
   sleep 5
 done
 test -f /opt/opencode/compose.yaml || { echo "app bundle never appeared"; exit 1; }
 test -f /opt/opencode/switch.sh || { echo "app bundle never appeared"; exit 1; }
+test -f /opt/opencode/opencode.json || { echo "opencode config never appeared"; exit 1; }
 chmod +x /opt/opencode/switch.sh
 cat > /opt/opencode/app.env <<ENV_EOF
 DOMAIN=${domain_name}
@@ -97,17 +84,13 @@ OAUTH2_PROXY_CLIENT_ID=${github_oauth_client_id}
 OAUTH2_PROXY_GITHUB_USERS=${github_oauth_user}
 OAUTH2_PROXY_REDIRECT_URL=https://${domain_name}/oauth2/callback
 ENV_EOF
-# app.env will hold secrets below: lock it to 0600 before appending them
-# so the values are never world-readable (default umask is 022).
 chmod 600 /opt/opencode/app.env
 
 # Secrets from SSM (ADR-0004, ADR-0014): never in repo/state/logs.
-# set -x at the top would otherwise echo values into
-# /var/log/cloud-init-output.log, which ships to the -boot log group.
-# Disable xtrace around the secrets, then unset them. This block also
-# derives BASIC_AUTH (base64 of opencode:<password>) so Caddy can inject
-# the machine-only backend password after the GitHub SSO gate — the human
-# never types the shared password (issue #17).
+# set -x at the top would otherwise echo values into cloud-init-output.log.
+# Disable xtrace around every secret fetch, write directly to the 0600 env
+# file, then unset the shell variable. Empty provider parameter names are
+# deliberately skipped, so an unconfigured provider remains unavailable.
 set +x
 VALUE=$(aws ssm get-parameter --name "${opencode_password_parameter}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
 printf 'OPENCODE_SERVER_PASSWORD=%s\n' "$VALUE" >> /opt/opencode/app.env
@@ -120,34 +103,29 @@ unset OAUTH_SECRET
 COOKIE_SECRET=$(aws ssm get-parameter --name "${oauth_cookie_secret_parameter}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
 printf 'OAUTH2_PROXY_COOKIE_SECRET=%s\n' "$COOKIE_SECRET" >> /opt/opencode/app.env
 unset COOKIE_SECRET
+%{ for env_name, parameter_name in provider_api_key_parameters ~}
+%{ if parameter_name != "" ~}
+${env_name}_VALUE=$(aws ssm get-parameter --name "${parameter_name}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
+printf '${env_name}=%s\n' "$${env_name}_VALUE" >> /opt/opencode/app.env
+unset ${env_name}_VALUE
+%{ endif ~}
+%{ endfor ~}
 set -x
 chmod 600 /opt/opencode/app.env
 
 cd /opt/opencode
-# Fresh host boots blue explicitly (ADR-0015): a bare `up -d` would start
-# BOTH colors and dual-run the workspace. LIVE file tells switch.sh and
-# the reboot reconciler below which color serves.
 docker compose up -d caddy oauth2-proxy opencode-blue
 echo blue > /opt/opencode/.live-color
 docker compose ps
 
-# Git identity + auth inside the container (ADR-0010). Idempotent: re-run
-# any time (e.g. after cloning repos or rotating the token). Warns instead
-# of failing boot — git is not boot-critical.
+# Git identity + auth inside the container (ADR-0010). Idempotent.
 cat > /usr/local/bin/opencode-git-setup.sh <<'GIT_EOF'
 #!/bin/bash
-# Never prints the token: xtrace stays off in here even though the outer
-# boot script runs with set -x (quoted heredoc, so outer tracing only
-# sees the cat, never these expansions).
 set +x
 set -euo pipefail
 COMPOSE="docker compose -f /opt/opencode/compose.yaml"
-# Blue-green (ADR-0015): git lives in whichever color serves (-T keeps
-# SSM happy).
 LIVE=$(cat /opt/opencode/.live-color 2>/dev/null || echo blue)
 TARGET="opencode-$LIVE"
-# First pulls can take a while; git config must be present straight after
-# deploy, so wait up to 10 min rather than racing the pull.
 for _ in $(seq 1 120); do
   $COMPOSE ps --status running --services 2>/dev/null | grep -q "^$TARGET$" && break
   sleep 5
@@ -157,16 +135,11 @@ GH_PAT=$(aws ssm get-parameter --name "${github_token_parameter}" --with-decrypt
 [ -n "${git_user_email}" ] && $COMPOSE exec -T $TARGET git config --global user.email "${git_user_email}" || true
 $COMPOSE exec -T $TARGET git config --global credential.helper store
 printf 'https://x-access-token:%s@github.com\n' "$GH_PAT" | $COMPOSE exec -T -i $TARGET sh -c 'cat > /root/.git-credentials && chmod 600 /root/.git-credentials' # pragma: allowlist secret -- %s placeholder, token arrives via SSM at runtime
-# Verify it stuck: a silent miss here is "no git config" downstream.
 $COMPOSE exec -T $TARGET git config --global credential.helper | grep -q '^store$' || { echo "WARNING: git credential helper not applied" >&2; exit 1; }
 GIT_EOF
 chmod +x /usr/local/bin/opencode-git-setup.sh
 /usr/local/bin/opencode-git-setup.sh || echo "WARNING: git setup failed; re-run /usr/local/bin/opencode-git-setup.sh" >&2
 
-# Blue-green reboot reconciler (ADR-0015): both colors are restart=always,
-# so a plain reboot starts both and dual-runs the workspace. This oneshot
-# stops whichever color is not live (recorded in .live-color, default
-# blue). First boot is handled explicitly above; this covers reboots.
 cat > /etc/systemd/system/opencode-colors.service <<'UNIT_EOF'
 [Unit]
 Description=Reconcile opencode blue-green colors after boot
@@ -183,8 +156,7 @@ UNIT_EOF
 systemctl daemon-reload
 systemctl enable opencode-colors.service
 
-# Intrusion visibility (ADR-0006): ship Caddy access logs + sshd syslog to
-# CloudWatch (alarms in modules/monitoring).
+# Intrusion visibility (ADR-0006): ship Caddy access logs + sshd syslog to CloudWatch.
 systemctl enable --now rsyslog
 cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<CW_EOF
 {
