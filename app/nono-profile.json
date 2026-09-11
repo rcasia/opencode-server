@@ -3,7 +3,7 @@
   "meta": {
     "name": "opencode-server",
     "version": "1.0.0",
-    "description": "Pilot sandbox for the opencode web backend (issue #30, ADR-0020/ADR-0023). Allows the container workspace (/root workdir), opencode config/data/cache paths, and port 4096; egress filtered through the 'opencode' network profile (provider APIs + GitHub); docker.sock, IMDS, and credential paths denied. Agent git push keeps working through a single-file grant for the container git-credentials file."
+    "description": "Pilot sandbox for the opencode web backend (issue #30, ADR-0020/ADR-0025). Allows the container workspace (/root workdir), opencode config/data/cache paths, and port 4096; egress filtered through the 'opencode' network profile (provider APIs + GitHub); docker.sock, IMDS, and credential paths denied. Agent git push keeps working through a single-file grant for the container git-credentials file."
   },
   "groups": {
     "include": [

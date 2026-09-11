@@ -1,4 +1,4 @@
-# ADR-0023: nono Sandbox Pilot (vendored RPM + checked-in profile)
+# ADR-0025: nono Sandbox Pilot (vendored RPM + checked-in profile)
 
 ## Status
 
@@ -48,7 +48,9 @@ existing `test-boot` suite green without claiming the sandbox proof.
   bind-mounted read-only. `SYS_PTRACE` is added back to the backends
   (nono's documented requirement for its seccomp network-proxy
   handoff inside Docker; it only lets nono's parent duplicate an fd
-  from its own child).
+  from its own child). The RPM install lives in the `user_data`
+  bootstrap (toolchain per ADR-0024), so binary bumps replace the
+  host; the profile re-syncs over SSM with the `host/` stages.
 - **`docker.sock` mounts removed** from both backend colors. Consequence
   as decided: the agent loses docker builds; container work moves
   outside the sandbox until a brokered path is proposed separately.
@@ -121,6 +123,7 @@ start. Reviewers re-verify the SHAs against the upstream
 - ADR-0003 (supply-chain hygiene the install path satisfies)
 - ADR-0007 / ADR-0011 / ADR-0015 (bundle + blue-green the profile ships through)
 - ADR-0010 (git identity the single-file grant preserves)
+- ADR-0024 (staged boot: toolchain in bootstrap, stages over SSM)
 
 ## References
 

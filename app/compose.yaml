@@ -50,7 +50,7 @@ services:
 
   opencode-blue:
     image: ghcr.io/anomalyco/opencode:1.18.30@sha256:412b37a894bb937a0d5d6a1860789b9fd7d34a109334bec98a3f6ecf812bb442
-    # Sandboxed backend (ADR-0020, ADR-0023): nono wraps `opencode web`
+    # Sandboxed backend (ADR-0020, ADR-0025): nono wraps `opencode web`
     # with the checked-in profile. docker.sock is CUT on purpose — agent
     # docker builds move out of the sandbox (the socket is host-root).
     # The touch pre-creates /root/.git-credentials so the profile's

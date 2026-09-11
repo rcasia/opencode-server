@@ -35,7 +35,7 @@ grep -q '"apiKey": "{env:ANTHROPIC_API_KEY}"' opencode.json
 grep -q '"apiKey": "{env:OPENAI_API_KEY}"' opencode.json
 echo "PASS: opencode.json is valid JSON and uses env substitution for provider keys"
 
-echo "==> Validating nono pilot pins (ADR-0023)"
+echo "==> Validating nono pilot pins (ADR-0025)"
 jq empty nono-profile.json
 jq empty nono-version.json
 MANIFEST_VERSION="$(jq -r .version nono-version.json)"

@@ -22,7 +22,7 @@ rule 10).
   configuration; provider API keys are referenced only through
   `{env:VAR}` substitutions and never committed. Precedence: the managed
   file is the global default and a project-level `opencode.json` in the
-  workspace overrides it per key (ADR-0023).
+  workspace overrides it per key (ADR-0025).
  - **App-only pushes ship via `deploy-app`.** When infra is unchanged,
    the bundle uploads and `switch.sh deploy` runs over SSM — including
    from a cold edge.
@@ -54,7 +54,7 @@ rule 10).
   workspace + port 4096 + provider/GitHub egress allowed; IMDS,
   credential paths, and `docker.sock` denied. The pinned nono RPM rides
   the S3 bundle (CI verifies SHA, boot installs from disk). Agent
-  container builds move out of the sandbox. Rationale: ADR-0020, ADR-0023.
+  container builds move out of the sandbox. Rationale: ADR-0020, ADR-0025.
 
 ## Watch
 
