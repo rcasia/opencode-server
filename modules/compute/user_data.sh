@@ -57,18 +57,22 @@ dnf install -y docker-compose-plugin || {
 }
 docker compose version
 
-# App stack (single source of truth: app/ in the repo, via templatefile).
+# App stack: fetched from the S3 bundle (ADR-0011), never baked into this
+# script, so app changes deploy without replacing the instance.
 # rm -rf first: a previous boot once left Caddyfile behind as a directory
 # (Docker bind-mount auto-creation), which made `cat` fail and killed boot.
 mkdir -p /opt/opencode/logs
 ls -la /opt/opencode/
 rm -rf /opt/opencode/compose.yaml /opt/opencode/Caddyfile
-cat > /opt/opencode/compose.yaml <<'COMPOSE_EOF'
-${compose_yaml}
-COMPOSE_EOF
-cat > /opt/opencode/Caddyfile <<'CADDY_EOF'
-${caddyfile}
-CADDY_EOF
+# Retry: the bundle may land seconds after boot starts (bucket-creating
+# applies upload it post-apply). Fail loud if it never appears.
+for _ in $(seq 1 60); do
+  aws s3 cp "s3://${app_bundle_bucket}/app/compose.yaml" /opt/opencode/compose.yaml --region "${aws_region}" \
+    && aws s3 cp "s3://${app_bundle_bucket}/app/Caddyfile" /opt/opencode/Caddyfile --region "${aws_region}" \
+    && break
+  sleep 5
+done
+test -f /opt/opencode/compose.yaml || { echo "app bundle never appeared"; exit 1; }
 cat > /opt/opencode/app.env <<ENV_EOF
 DOMAIN=${domain_name}
 ENV_EOF

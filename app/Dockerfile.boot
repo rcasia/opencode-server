@@ -14,6 +14,7 @@ ARG DOMAIN=boot.test
 RUN dnf install -y -q shadow-utils e2fsprogs
 COPY app/stubs/ /opt/stubs/
 COPY app/.rendered-user-data.sh /opt/test-user-data.sh
+COPY app/compose.yaml app/Caddyfile /fixtures/
 ENV PATH=/opt/stubs:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 RUN chmod +x /opt/stubs/* \
  && useradd -m ec2-user \

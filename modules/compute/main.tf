@@ -40,6 +40,23 @@ resource "aws_iam_role_policy" "opencode_password" {
   policy = data.aws_iam_policy_document.opencode_password.json
 }
 
+data "aws_iam_policy_document" "app_bundle" {
+  statement {
+    actions   = ["s3:GetObject"]
+    resources = ["${var.app_bundle_arn}/app/*"]
+  }
+  statement {
+    actions   = ["s3:ListBucket"]
+    resources = [var.app_bundle_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "app_bundle" {
+  name   = "${var.name_prefix}-app-bundle"
+  role   = aws_iam_role.server.name
+  policy = data.aws_iam_policy_document.app_bundle.json
+}
+
 resource "aws_iam_instance_profile" "server" {
   name = "${var.name_prefix}-profile"
   role = aws_iam_role.server.name
@@ -70,8 +87,7 @@ resource "aws_instance" "server" {
     git_user_name               = var.git_user_name
     git_user_email              = var.git_user_email
     github_token_parameter      = var.github_token_parameter
-    compose_yaml                = file("${path.module}/../../app/compose.yaml")
-    caddyfile                   = file("${path.module}/../../app/Caddyfile")
+    app_bundle_bucket           = var.app_bundle_bucket
   })
 
   root_block_device {

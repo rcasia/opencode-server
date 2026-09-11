@@ -9,6 +9,8 @@ subnet (no NAT), Elastic IP, SSM access, optional SSH key.
 - `versions.tf` — terraform + AWS provider pins, S3 backend, default tags
 - `variables.tf` / `locals.tf` / `data.tf` — inputs, naming/tags, AMI + AZs
 - `main.tf` — composes `modules/network` + `modules/compute` + `modules/monitoring`
+- `bundle.tf` — versioned S3 app bundle (compose.yaml, Caddyfile) for
+  zero-downtime deploys (see ADR-0011)
 - `modules/network` — VPC, subnet, IGW, routes, SG (SSH /32 + Caddy 80/443)
 - `modules/compute` — IAM role for SSM, optional key pair, EC2, EIP,
   persistent EBS data disk at `/var/lib/docker` (see ADR-0008),
@@ -38,11 +40,12 @@ subnet (no NAT), Elastic IP, SSM access, optional SSH key.
   and `test-bootstrap` (executes rendered user_data in AL2023)
 - `.pre-commit-config.yaml` — file hygiene + terraform_fmt +
   terraform_validate + actionlint
-- `.github/workflows/ci.yml` — jobs `changes` (paths-filter gate:
-  `app/**` counts as infra),
+- `.github/workflows/ci.yml` — jobs `changes` (paths-filter: infra vs app
+  vs pipeline),
   `pre-commit` (always), `terraform` + `local` (infra/pipeline changes only),
-  plus `deploy-prod` (main pushes only: OIDC plan/apply/smoke, needs the
-  checks green-or-skipped; PR runs skip it). Gates fail open.
+  plus `deploy-prod` (main pushes only: bundle upload + OIDC plan/apply/smoke,
+  needs the checks green-or-skipped) and `deploy-app` (app-file changes only:
+  SSM rolling restart, no replacement; PR runs skip both). Gates fail open.
 
 ## Required skills
 

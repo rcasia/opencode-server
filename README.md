@@ -38,14 +38,20 @@ designed after Fowler's [Continuous Integration](https://martinfowler.com/articl
 ```text
 push to main (PRs run the checks only, never deploy)
 └─ ci, one workflow graph
-     ├─ changes: paths-filter (infra vs pipeline vs docs-only)
+     ├─ changes: paths-filter (infra vs app vs pipeline vs docs-only)
      ├─ pre-commit: always (hygiene + terraform fmt/validate + actionlint + secrets)
      ├─ terraform: only on infra/pipeline changes (fmt -check, init, validate)
-     ├─ local: only on infra/pipeline changes (moto plan, zero credentials)
-     └─ deploy-prod (main pushes only, needs green-or-skipped checks)
-          ├─ OIDC creds → init (S3) → validate → plan
-          └─ apply + smoke test, only when the plan has changes
+     ├─ local: only on infra/pipeline changes (moto plan + apply + idempotence + bootstrap build)
+     ├─ deploy-prod (main pushes only, needs green-or-skipped checks)
+     │    ├─ upload app bundle → OIDC creds → init (S3) → validate → plan
+     │    └─ apply + smoke test, only when the plan has changes
+     └─ deploy-app (app-file changes only, after deploy-prod)
+          └─ SSM rolling restart (pull + up, no replacement) + smoke test
 ```
+App changes never replace the instance: the bundle (`app/`) uploads to S3
+and the live box pulls + restarts containers (seconds of blip). Host
+changes (Terraform) still replace — rarely, by construction. Rationale:
+[`docs/adr/0011-rolling-deploys.md`](docs/adr/0011-rolling-deploys.md).
 Gates fail open: if the filter breaks, everything runs. Docs-only pushes
 skip `terraform`, `local`, and `deploy-prod` entirely.
 

@@ -1,7 +1,11 @@
 #!/bin/bash
-# Test stub: serves only the SSM get-parameter call used at boot.
+# Test stubs: SSM get-parameter answers with a dummy; `s3 cp` serves files
+# from /fixtures (populated by the Dockerfile from app/), so the S3 bundle
+# path in user_data is exercised without cloud access.
 if [[ " $* " == *" get-parameter "* ]]; then
   echo "boot-test-dummy"
+elif [ "${1:-}" = "s3" ] && [ "${2:-}" = "cp" ]; then
+  cp "/fixtures/$(basename "$4")" "$4"
 else
   echo "stub-aws: unsupported call: $*" >&2
   exit 1

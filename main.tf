@@ -24,6 +24,8 @@ module "compute" {
   git_user_name               = var.git_user_name
   git_user_email              = var.git_user_email
   github_token_parameter      = var.github_token_parameter
+  app_bundle_bucket           = aws_s3_bucket.app_bundle.bucket
+  app_bundle_arn              = aws_s3_bucket.app_bundle.arn
 }
 
 module "monitoring" {

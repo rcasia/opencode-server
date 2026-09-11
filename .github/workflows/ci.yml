@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       infra: ${{ steps.filter.outputs.infra }}
+      app: ${{ steps.filter.outputs.app }}
       pipeline: ${{ steps.filter.outputs.pipeline }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -39,7 +40,9 @@ jobs:
               - '**/*.sh'
               - '**/*.tfvars'
               - '.terraform.lock.hcl'
-              - 'app/**'
+            app:
+              - 'app/compose.yaml'
+              - 'app/Caddyfile'
             pipeline:
               - '.github/**'
               - 'Makefile'
@@ -182,6 +185,13 @@ jobs:
             -backend-config="encrypt=true" \
             -backend-config="use_lockfile=true"
 
+      - name: Upload app bundle (S3, versioned — boots and rolling restarts read it)
+        run: |
+          BUCKET="$(terraform output -raw app_bundle_bucket 2>/dev/null || true)"
+          if [ -z "$BUCKET" ]; then echo "no bundle bucket in state yet, skipping"; exit 0; fi
+          aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --region "${{ env.AWS_REGION }}"
+
       - name: Terraform validate
         run: terraform validate
 
@@ -209,11 +219,92 @@ jobs:
         if: steps.plan.outputs.exitcode == '2'
         run: terraform apply -input=false tfplan
 
+      - name: Upload app bundle again (covers bucket-creating applies;
+          boots fetch it with retries)
+        if: steps.plan.outputs.exitcode == '2'
+        run: |
+          BUCKET="$(terraform output -raw app_bundle_bucket)"
+          aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --region "${{ env.AWS_REGION }}"
+
       - name: Smoke test (site answers through TLS + auth gate)
         if: steps.plan.outputs.exitcode == '2'
         run: |
           terraform output
           aws ec2 wait instance-running --instance-ids "$(terraform output -raw instance_id)" --region "${{ env.AWS_REGION }}"
+          URL="$(terraform output -raw opencode_url)"
+          case "$URL" in https://*) ;; *) echo "no public URL ($URL), skipping HTTP check"; exit 0;; esac
+          for _ in $(seq 1 30); do
+            CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$URL" || true)"
+            if [ "$CODE" = "401" ]; then echo "site up: 401 auth gate at $URL"; exit 0; fi
+            sleep 20
+          done
+          echo "site never returned 401 (last: $CODE)"; exit 1
+
+  deploy-app:
+    needs: [pre-commit, deploy-prod, changes]
+    # App-file changes only (infra changes already redeployed via deploy-prod,
+    # whose fresh boot pulls the bundle). Fail open like every other gate.
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.pre-commit.result == 'success' && needs.deploy-prod.result == 'success' && (needs.changes.result != 'success' || (needs.changes.outputs.app == 'true' && needs.changes.outputs.infra != 'true'))
+    runs-on: ubuntu-latest
+    environment: prod
+    concurrency:
+      group: prod-deploy
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    env:
+      AWS_REGION: eu-west-1
+      TF_STATE_KEY: opencode-server/prod/terraform.tfstate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "1.13.3"
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform init (S3 backend, for outputs)
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ env.TF_STATE_KEY }}" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+
+      - name: Rolling restart via SSM (no replacement, seconds of blip)
+        id: restart
+        run: |
+          IID="$(terraform output -raw instance_id)"
+          BUCKET="$(terraform output -raw app_bundle_bucket)"
+          echo "instance=$IID" >> "$GITHUB_OUTPUT"
+          CMD_ID="$(aws ssm send-command --instance-ids "$IID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=[\"cd /opt/opencode && aws s3 cp s3://$BUCKET/app/compose.yaml compose.yaml --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/Caddyfile Caddyfile --region ${{ env.AWS_REGION }} && docker compose pull && docker compose up -d\"]" \
+            --query "Command.CommandId" --output text)"
+          echo "command=$CMD_ID" >> "$GITHUB_OUTPUT"
+          for _ in $(seq 1 60); do
+            STATUS="$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query Status --output text 2>/dev/null || echo Pending)"
+            echo "ssm status: $STATUS"
+            [ "$STATUS" = "Success" ] && break
+            case "$STATUS" in Failed|Cancelled|TimedOut) exit 1;; esac
+            sleep 5
+          done
+          [ "$STATUS" = "Success" ]
+
+      - name: Smoke test (site answers through TLS + auth gate)
+        run: |
           URL="$(terraform output -raw opencode_url)"
           case "$URL" in https://*) ;; *) echo "no public URL ($URL), skipping HTTP check"; exit 0;; esac
           for _ in $(seq 1 30); do

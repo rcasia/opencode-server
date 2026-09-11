@@ -59,6 +59,16 @@ variable "github_token_parameter" {
   default     = "/opencode/github-token"
 }
 
+variable "app_bundle_bucket" {
+  description = "S3 bucket holding the app bundle (compose.yaml, Caddyfile)"
+  type        = string
+}
+
+variable "app_bundle_arn" {
+  description = "ARN of the app bundle bucket (for the instance read policy)"
+  type        = string
+}
+
 variable "ssh_public_key" {
   description = "Optional SSH public key. If empty, use SSM Session Manager."
   type        = string
