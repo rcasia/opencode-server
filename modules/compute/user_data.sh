@@ -77,9 +77,15 @@ cat > /opt/opencode/app.env <<ENV_EOF
 DOMAIN=${domain_name}
 ENV_EOF
 
-# OPENCODE_SERVER_PASSWORD from SSM (ADR-0004): never in repo/state.
+# OPENCODE_SERVER_PASSWORD from SSM (ADR-0004): never in repo/state/logs.
+# set -x at the top would otherwise echo $VALUE into
+# /var/log/cloud-init-output.log, which ships to the -boot log group.
+# Disable xtrace around the secret, then unset it.
+set +x
 VALUE=$(aws ssm get-parameter --name "${opencode_password_parameter}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
 printf 'OPENCODE_SERVER_PASSWORD=%s\n' "$VALUE" >> /opt/opencode/app.env
+unset VALUE
+set -x
 chmod 600 /opt/opencode/app.env
 
 cd /opt/opencode
