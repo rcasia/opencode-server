@@ -115,14 +115,18 @@ resource "aws_cloudwatch_metric_alarm" "ssh_probe" {
   alarm_actions       = [aws_sns_topic.alerts.arn]
 }
 
-# External uptime probe: Route53 hits the unauthenticated /ping every 30s
-# and pages on 3 consecutive failures (~$0.50/mo). /ping never touches
-# oauth2-proxy or opencode, so probes stay out of the deny metrics.
+# External uptime probe: Route53 hits the public readiness gate /ready
+# every 30s and pages on 3 consecutive failures (~$0.50/mo). /ready
+# answers 200 only when a backend color answers behind the edge
+# (ADR-0015), so this pages on app failure too — not just edge failure.
+# /ping stays as the edge-local diagnostic (tells edge apart from app).
+# Neither path goes through forward_auth, so probes stay out of the deny
+# metrics.
 resource "aws_route53_health_check" "site" {
   count             = var.domain_name != "" ? 1 : 0
   type              = "HTTPS"
   fqdn              = var.domain_name
-  resource_path     = "/ping"
+  resource_path     = "/ready"
   port              = 443
   request_interval  = 30
   failure_threshold = 3

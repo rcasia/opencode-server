@@ -2,7 +2,7 @@
 #
 # The root stack runs AS aws_iam_role.deploy via GitHub OIDC, so these
 # policies must allow everything the root stack manages plus what the CI
-# steps call directly (bundle upload, ec2 wait, SSM rolling restart).
+# steps call directly (bundle upload, ec2 wait, SSM blue-green switch).
 # The role manages its own trust (DeploySelf + DeployOIDC) so the
 # pipeline converges without a laptop. Missing permission = red deploy,
 # fixed here in versioned code — never console clicks.
@@ -366,8 +366,8 @@ resource "aws_iam_role_policy_attachment" "deploy_identity" {
   policy_arn = aws_iam_policy.deploy_identity.arn
 }
 
-# Intrusion alerting + uptime (modules/monitoring) and the rolling app
-# restart (deploy-app): SSM RunShellScript on the server.
+# Intrusion alerting + uptime (modules/monitoring) and the blue-green app
+# switch (deploy-app): SSM RunShellScript on the server.
 data "aws_iam_policy_document" "deploy_observe" {
   statement {
     sid = "Alerts"
