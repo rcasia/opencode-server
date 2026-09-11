@@ -5,7 +5,13 @@
 # changes deploy over SSM with no replacement.
 set -eux
 
-dnf update -y
+# Security-only OS updates (issue #52): a bare `dnf update -y` pulls
+# every AL2023 package on each new host, so two boots from one commit
+# can diverge with no bisect trail. --security keeps the boot
+# reproducible-ish (AMI pin per ADR-0029 is the real control) while
+# still patching CVEs; the transaction is logged for the boot audit.
+dnf update -y --security
+rpm -qa --last | head -n 20 || true
 dnf install -y docker git tmux htop jq unzip tar rsyslog amazon-cloudwatch-agent
 
 VOL_SFX=$(echo "${data_volume_id}" | tr -d '-')
@@ -33,12 +39,15 @@ usermod -aG docker ec2-user || true
 
 # Bound container log growth (ADR-0019): the json-file driver is unbounded
 # by default and lands on the same data disk the alarms watch. 10m x3 per
-# container, applied before any container starts below.
+# container, applied before any container starts below. live-restore
+# (issue #52): a daemon restart (config edit, docker package update)
+# keeps containers running instead of killing the live color + Caddy.
 mkdir -p /etc/docker
 cat > /etc/docker/daemon.json <<'DOCKER_EOF'
 {
   "log-driver": "json-file",
-  "log-opts": { "max-size": "10m", "max-file": "3" }
+  "log-opts": { "max-size": "10m", "max-file": "3" },
+  "live-restore": true
 }
 DOCKER_EOF
 systemctl restart docker
