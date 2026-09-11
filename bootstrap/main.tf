@@ -36,3 +36,124 @@ resource "aws_s3_bucket_public_access_block" "state" {
   ignore_public_acls      = true
   restrict_public_buckets = true
 }
+
+# Access-log target for the state bucket: SSE + PAB, 90-day expiry. Named
+# under the tfstate prefix so the existing deploy data policy pattern
+# (`tfstate-*`) already scopes it.
+resource "aws_s3_bucket" "state_logs" {
+  bucket = "${var.project}-${var.environment}-tfstate-logs-${data.aws_caller_identity.current.account_id}"
+
+  tags = { Name = "${var.project}-${var.environment}-tfstate-logs" }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "state_logs" {
+  bucket = aws_s3_bucket.state_logs.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "state_logs" {
+  bucket                  = aws_s3_bucket.state_logs.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "state_logs" {
+  bucket = aws_s3_bucket.state_logs.id
+
+  rule {
+    id     = "expire-access-logs"
+    status = "Enabled"
+
+    expiration {
+      days = 90
+    }
+  }
+}
+
+# Lets S3 server-access logging write into the log bucket. Policy-based
+# delivery (PAB-compatible) instead of the log-delivery-write ACL.
+data "aws_iam_policy_document" "state_logs_delivery" {
+  statement {
+    sid       = "S3ServerAccessLogsDelivery"
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.state_logs.arn}/tfstate/*"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["logging.s3.amazonaws.com"]
+    }
+
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values   = [aws_s3_bucket.state.arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "s3:x-amz-acl"
+      values   = ["bucket-owner-full-control"]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "state_logs" {
+  bucket = aws_s3_bucket.state_logs.id
+  policy = data.aws_iam_policy_document.state_logs_delivery.json
+}
+
+resource "aws_s3_bucket_logging" "state" {
+  bucket        = aws_s3_bucket.state.id
+  target_bucket = aws_s3_bucket.state_logs.id
+  target_prefix = "tfstate/"
+}
+
+# TLS-only guard on the state bucket: denies plaintext HTTP. No
+# unencrypted-put deny on purpose (see bundle.tf): service writers do not
+# send the SSE header, and the bucket default already encrypts at rest.
+data "aws_iam_policy_document" "state_tls_only" {
+  statement {
+    sid       = "DenyPlaintextTransport"
+    effect    = "Deny"
+    actions   = ["s3:*"]
+    resources = [aws_s3_bucket.state.arn, "${aws_s3_bucket.state.arn}/*"]
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "state" {
+  bucket = aws_s3_bucket.state.id
+  policy = data.aws_iam_policy_document.state_tls_only.json
+}
+
+# State history is valuable for recovery: expire noncurrent versions after
+# 90 days.
+resource "aws_s3_bucket_lifecycle_configuration" "state" {
+  bucket = aws_s3_bucket.state.id
+
+  rule {
+    id     = "expire-noncurrent-versions"
+    status = "Enabled"
+
+    noncurrent_version_expiration {
+      noncurrent_days = 90
+    }
+  }
+}
