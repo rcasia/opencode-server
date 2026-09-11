@@ -253,14 +253,16 @@ resource "aws_volume_attachment" "data" {
 # cents/month. The service-linked role is managed here so first apply
 # converges without console clicks.
 resource "aws_iam_service_linked_role" "dlm" {
+  count            = var.enable_data_snapshots ? 1 : 0
   aws_service_name = "dlm.amazonaws.com"
   description      = "${var.name_prefix} data-volume snapshots (issue #46)"
 }
 
 resource "aws_dlm_lifecycle_policy" "data" {
+  count              = var.enable_data_snapshots ? 1 : 0
   description        = "${var.name_prefix}-data daily snapshots"
   state              = "ENABLED"
-  execution_role_arn = aws_iam_service_linked_role.dlm.arn
+  execution_role_arn = aws_iam_service_linked_role.dlm[0].arn
 
   policy_details {
     resource_types = ["VOLUME"]

@@ -80,6 +80,12 @@ variable "ssm_sessions_log_group_arn" {
   type        = string
 }
 
+variable "enable_data_snapshots" {
+  description = "Manage the DLM daily-snapshot policy + service-linked role. False only for the Moto mock, which cannot create DLM policies (issue #46)."
+  type        = bool
+  default     = true
+}
+
 variable "ssh_public_key" {
   description = "Optional SSH public key. If empty, use SSM Session Manager."
   type        = string

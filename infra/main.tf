@@ -13,6 +13,7 @@ module "compute" {
   name_prefix                   = local.name_prefix
   ami_id                        = local.ami_id
   host_replace_trigger          = var.host_replace_trigger
+  enable_data_snapshots         = var.enable_data_snapshots
   instance_type                 = var.instance_type
   subnet_id                     = module.network.public_subnet_id
   security_group_id             = module.network.security_group_id

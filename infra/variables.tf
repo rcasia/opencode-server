@@ -16,6 +16,12 @@ variable "host_replace_trigger" {
   default     = ""
 }
 
+variable "enable_data_snapshots" {
+  description = "Manage the DLM daily-snapshot policy. False only for the Moto mock (issue #46)."
+  type        = bool
+  default     = true
+}
+
 variable "availability_zone" {
   description = "Override AZ lookup. Useful for LocalStack, whose AZs are mocked."
   type        = string

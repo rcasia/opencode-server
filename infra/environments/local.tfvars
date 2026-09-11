@@ -8,7 +8,10 @@ project           = "opencode"
 environment       = "local"
 aws_endpoint_url  = "http://localhost:5000"
 availability_zone = "eu-west-1a"
-instance_type     = "t3.micro"
-allowed_ssh_cidr  = ""
-ssh_public_key    = ""
-root_volume_size  = 30
+# Moto cannot create DLM lifecycle policies (403 on CreateLifecyclePolicy),
+# so snapshots stay prod-only; the mock still converges everything else.
+enable_data_snapshots = false
+instance_type         = "t3.micro"
+allowed_ssh_cidr      = ""
+ssh_public_key        = ""
+root_volume_size      = 30
