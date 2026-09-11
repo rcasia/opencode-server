@@ -45,6 +45,7 @@ jobs:
               - '**/*.sh'
               - '**/*.tfvars'
               - '.terraform.lock.hcl'
+              - 'bootstrap/.terraform.lock.hcl'
             app:
               - 'app/compose.yaml'
               - 'app/Caddyfile'
