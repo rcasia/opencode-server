@@ -181,10 +181,15 @@ docker compose exec -T caddy caddy adapt --config /etc/caddy/Caddyfile --adapter
 echo "PASS: Caddy injects Basic auth to the backend after SSO"
 
 echo "==> Asserting sandbox profile (issue #31, ADR-0025)"
-# Probes run through a nested `nono run` with the same profile the
-# backend itself runs under: identical policy, tightened-or-equal
-# Landlock inheritance. Plain `docker compose exec` spawns outside the
-# sandbox and would prove nothing here.
+# Two probe kinds. Policy queries (`why`) evaluate the profile
+# statically through plain exec: no sandbox application, so no tty or
+# kernel needed — they prove the checked-in policy says what we think.
+# (`why --self` would query the live sandbox instead, but its state
+# reload breaks on Linux volatile grants — upstream issue #986 — so it
+# cannot run here.) Liveness probes (IMDS, git, model call) run through
+# a nested `nono run` under the same profile: identical policy,
+# tightened-or-equal Landlock inheritance. Plain exec for those would
+# spawn outside the sandbox and prove nothing.
 SANDBOX_NONO="/usr/local/bin/nono"
 SANDBOX_PROFILE="/etc/nono/profile.json"
 sandbox() {
@@ -193,6 +198,9 @@ sandbox() {
   # ENXIO the container-level tty: true fixed for the backend itself.
   # (compose exec only disables TTY allocation; it cannot force it.)
   docker exec -t "$(docker compose ps -q opencode-blue)" "$SANDBOX_NONO" run --silent --allow-cwd --profile "$SANDBOX_PROFILE" -- "$@"
+}
+whyquery() {
+  docker compose exec -T opencode-blue "$SANDBOX_NONO" why --profile "$SANDBOX_PROFILE" "$@" --json 2>&1
 }
 # Enforcement probes only mean something where the sandbox can
 # initialize (Landlock on a native kernel). Where it cannot (e.g. ARM
@@ -212,14 +220,14 @@ docker compose exec -T opencode-blue test '!' -e /var/run/docker.sock \
 echo "PASS: docker.sock mount is cut (socket absent in backend)"
 if [ "$SANDBOX_LIVE" = "1" ]; then
 why_allow() {
-  OUT="$(sandbox "$SANDBOX_NONO" why --self "$@" --json 2>&1)" \
+  OUT="$(whyquery "$@")" \
     || { echo "FAIL: why query failed: $*"; printf '%s\n' "$OUT"; exit 1; }
   printf '%s' "$OUT" | grep -q '"status":"allowed"' \
     || { echo "FAIL: expected sandbox to allow: $*"; printf '%s\n' "$OUT"; exit 1; }
   echo "PASS: sandbox allows $*"
 }
 why_deny() {
-  OUT="$(sandbox "$SANDBOX_NONO" why --self "$@" --json 2>&1)" \
+  OUT="$(whyquery "$@")" \
     || { echo "FAIL: why query failed: $*"; printf '%s\n' "$OUT"; exit 1; }
   printf '%s' "$OUT" | grep -q '"status":"denied"' \
     || { echo "FAIL: expected sandbox to deny: $*"; printf '%s\n' "$OUT"; exit 1; }
