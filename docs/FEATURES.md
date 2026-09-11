@@ -20,7 +20,9 @@ rule 10).
   application bundle and is mounted read-only as the global OpenCode config
   inside both backend colors. It contains model defaults and provider
   configuration; provider API keys are referenced only through
-  `{env:VAR}` substitutions and never committed.
+  `{env:VAR}` substitutions and never committed. Precedence: the managed
+  file is the global default and a project-level `opencode.json` in the
+  workspace overrides it per key (ADR-0023).
  - **App-only pushes ship via `deploy-app`.** When infra is unchanged,
    the bundle uploads and `switch.sh deploy` runs over SSM — including
    from a cold edge.

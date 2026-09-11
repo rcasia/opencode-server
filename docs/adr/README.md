@@ -26,6 +26,7 @@ trade-offs, and never rewrite an accepted record — supersede it with a new one
 | [0020](0020-nono-sandbox-spike.md) | Sandbox opencode with nono (spike verdict: adopt pilot, docker.sock cut) | Accepted | 2026-09-11 |
 | [0021](0021-scale-to-zero-spike.md) | Scale-to-zero workers per project (spike verdict: reject) | Accepted | 2026-09-11 |
 | [0022](0022-session-auto-recovery-spike.md) | Session auto-recovery (spike verdict: drain + diff-gated retry) | Accepted | 2026-09-11 |
+| [0023](0023-global-config-precedence.md) | Managed global OpenCode config and merge precedence | Accepted | 2026-09-11 |
 
 ## Creating a New ADR
 
