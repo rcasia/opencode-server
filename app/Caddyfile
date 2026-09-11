@@ -1,16 +1,42 @@
-# Caddy reverse proxy (ADR-0001, ADR-0007, ADR-0014). {$DOMAIN} and
-# {$BASIC_AUTH} come from the container environment (app.env).
+# Caddy reverse proxy (ADR-0001, ADR-0007, ADR-0014, ADR-0015). {$DOMAIN}
+# and {$BASIC_AUTH} come from the container environment (app.env).
 # `localhost` gets a local CA cert, public names get automatic Let's
 # Encrypt TLS. The human gate is GitHub SSO via oauth2-proxy
 # (forward_auth); the opencode backend password is machine-only —
 # Caddy injects it as Basic auth after SSO, so the human never types a
 # shared password (issue #17).
+#
+# Zero-downtime shape: Caddy is the stable edge. Both backend colors are
+# always listed as upstreams with `lb_policy first` (active/passive =
+# primary/secondary failover), so stopping the live color hands traffic to
+# the ready one with retries instead of failures. Never recreate Caddy on
+# a backend deploy — `caddy reload` (or nothing) is enough.
 {$DOMAIN} {
-	# Unauthenticated liveness probe for the Route53 health check (and
-	# test-boot). Everything else goes through the SSO gate first, so
-	# probes never pollute the deny metric.
+	# Unauthenticated liveness probe for the edge itself. Answers even
+	# when both backends are down — tells edge apart from app.
 	handle /ping {
 		respond "ok" 200
+	}
+	# Public readiness gate (ADR-0015). 200 "ready" only when a backend
+	# answers 2xx/3xx; 503 otherwise. deploy-app polls this before
+	# stopping the live color, and the Route53 probe pages on it.
+	# No forward_auth here on purpose: readiness must be checkable
+	# without a login. Bodies are masked so the UI never leaks past SSO.
+	handle /ready {
+		rewrite * /
+		reverse_proxy opencode-blue:4096 opencode-green:4096 {
+			header_up Authorization "Basic {$BASIC_AUTH}"
+			lb_policy first
+			lb_try_duration 5s
+			lb_retries 2
+			@ok status 200 201 204 301 302 303 307 308
+			handle_response @ok {
+				respond "ready" 200
+			}
+			handle_response {
+				respond "not ready" 503
+			}
+		}
 	}
 	# oauth2-proxy's own endpoints (login, callback, sign_in) proxy
 	# straight through without an auth check — they ARE the login flow.
@@ -34,8 +60,27 @@
 				redir * /oauth2/sign_in?rd={scheme}://{host}{uri}
 			}
 		}
-		reverse_proxy opencode:4096 {
+		reverse_proxy opencode-blue:4096 opencode-green:4096 {
 			header_up Authorization "Basic {$BASIC_AUTH}"
+			# Primary/secondary failover across the blue-green pair:
+			# serve the first healthy color, retry in-flight requests
+			# while the switch happens instead of failing them.
+			lb_policy first
+			lb_try_duration 10s
+			lb_retries 3
+			fail_duration 30s
+			health_uri /
+			health_interval 5s
+			health_timeout 3s
+			health_status 2xx
+			health_follow_redirects
+			health_headers {
+				Authorization "Basic {$BASIC_AUTH}"
+			}
+			# Keep agent websocket sessions alive across `caddy reload`
+			# (Caddyfile-only deploys): give clients 5 minutes to drain
+			# instead of cutting them at the swap.
+			stream_close_delay 5m
 		}
 	}
 	log {
