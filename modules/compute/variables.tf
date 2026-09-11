@@ -69,6 +69,11 @@ variable "app_bundle_arn" {
   type        = string
 }
 
+variable "ssm_sessions_log_group_arn" {
+  description = "ARN of the CloudWatch log group receiving SSM session streams (issue #54)"
+  type        = string
+}
+
 variable "ssh_public_key" {
   description = "Optional SSH public key. If empty, use SSM Session Manager."
   type        = string

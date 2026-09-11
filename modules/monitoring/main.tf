@@ -38,6 +38,38 @@ resource "aws_cloudwatch_log_group" "boot" {
 # retain them account-wide. Backend logs stay local (`docker logs`,
 # daemon-capped 10m x3). No metric filter ever read this group.
 
+# SSM session audit (issue #54): SSM is the only interactive path to the
+# host, and CloudTrail records only that a session existed — not what
+# was typed. This customer-owned Session document makes every shell
+# session stream to its own log group (90-day retention). Encryption
+# stays CloudWatch-default SSE like every other group here (no CMK:
+# cheap by design, rule 8); runAs drops sessions to ssm-user (root
+# remains reachable via SendCommand and via sudo from the session).
+resource "aws_cloudwatch_log_group" "ssm_sessions" {
+  name              = "${var.name_prefix}-ssm-sessions"
+  retention_in_days = 90
+}
+
+resource "aws_ssm_document" "session_logging" {
+  name            = "SSM-SessionManagerRunShell"
+  document_type   = "Session"
+  document_format = "JSON"
+
+  content = jsonencode({
+    schemaVersion = "1.0"
+    description   = "${var.name_prefix}: stream shell sessions to CloudWatch (issue #54)"
+    sessionType   = "Standard_Stream"
+    inputs = {
+      cloudWatchLogGroupName      = aws_cloudwatch_log_group.ssm_sessions.name
+      cloudWatchEncryptionEnabled = false
+      cloudWatchStreamingEnabled  = true
+      idleSessionTimeout          = "20"
+      runAsEnabled                = true
+      runAsDefaultUser            = "ssm-user"
+    }
+  })
+}
+
 resource "aws_cloudwatch_log_metric_filter" "login_401" {
   name           = "${var.name_prefix}-login-401"
   log_group_name = aws_cloudwatch_log_group.caddy.name

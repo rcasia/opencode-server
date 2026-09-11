@@ -570,6 +570,21 @@ data "aws_iam_policy_document" "deploy_observe" {
     resources = ["*"]
   }
 
+  # Session audit document (issue #54): the pipeline owns the
+  # SSM-SessionManagerRunShell preferences that stream shell sessions
+  # to CloudWatch. Scoped to that document name only.
+  statement {
+    sid = "SsmSessionDoc"
+    actions = [
+      "ssm:CreateDocument",
+      "ssm:UpdateDocument",
+      "ssm:DeleteDocument",
+      "ssm:DescribeDocument",
+      "ssm:GetDocument",
+    ]
+    resources = ["arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:document/SSM-SessionManagerRunShell"]
+  }
+
   # Account audit trail (modules/monitoring): mutating calls scope to the
   # project trail ARN. Reads stay wildcard: CloudTrail list/describe calls
   # do not authorize against the trail ARN (a scoped DescribeTrails still

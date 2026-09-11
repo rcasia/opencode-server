@@ -117,6 +117,27 @@ resource "aws_iam_role_policy" "app_bundle" {
   policy = data.aws_iam_policy_document.app_bundle.json
 }
 
+# SSM session streaming (issue #54): the Session document ships shell
+# output to the monitoring log group, so the instance role needs write
+# access to it. Scoped to that group ARN (passed in from the root
+# stack); the broad CloudWatchAgentServerPolicy is not relied upon.
+data "aws_iam_policy_document" "ssm_session_logging" {
+  statement {
+    actions = [
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+      "logs:DescribeLogStreams",
+    ]
+    resources = ["${var.ssm_sessions_log_group_arn}:*"]
+  }
+}
+
+resource "aws_iam_role_policy" "ssm_session_logging" {
+  name   = "${var.name_prefix}-ssm-session-logging"
+  role   = aws_iam_role.server.name
+  policy = data.aws_iam_policy_document.ssm_session_logging.json
+}
+
 resource "aws_iam_instance_profile" "server" {
   name = "${var.name_prefix}-profile"
   role = aws_iam_role.server.name

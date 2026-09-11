@@ -32,6 +32,7 @@ module "compute" {
   github_token_parameter        = var.github_token_parameter
   app_bundle_bucket             = aws_s3_bucket.app_bundle.bucket
   app_bundle_arn                = aws_s3_bucket.app_bundle.arn
+  ssm_sessions_log_group_arn    = module.monitoring.ssm_sessions_log_group_arn
 }
 
 module "monitoring" {
