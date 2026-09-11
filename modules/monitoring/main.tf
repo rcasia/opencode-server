@@ -161,10 +161,10 @@ resource "aws_cloudwatch_metric_alarm" "server_error" {
   alarm_actions       = [aws_sns_topic.alerts.arn]
 }
 
-# Sustained CPU pressure on the single host. Wired via instance_id; empty
-# (default) keeps the alarm out so fail-open plans without the wiring.
+# Sustained CPU pressure on the single host. No count gate: count must be
+# plan-time known and the instance ID is computed, so the alarm always
+# exists wherever the module is wired (root main.tf passes the ID).
 resource "aws_cloudwatch_metric_alarm" "cpu_high" {
-  count               = var.instance_id != "" ? 1 : 0
   alarm_name          = "${var.name_prefix}-cpu-high"
   alarm_description   = "EC2 CPU above 80% for 15 minutes: host under sustained load"
   comparison_operator = "GreaterThanThreshold"
