@@ -19,12 +19,12 @@ subnet (no NAT), Elastic IP, SSM access, optional SSH key.
 - `outputs.tf` — instance_id, public_ip, vpc/sg ids, ssh/ssm commands, opencode_url,
   deployed_version (commit SHA stamped on instance + data disk as `DeployedRef`)
 - `modules/monitoring` — SNS topic + optional email subscription, CW log groups
-  (caddy, secure, boot, containers), metric filters (Caddy 401s, sshd
-  failures) + alarms, Route53 HTTPS probe on `/ready` + site-down alarm
-  (see ADR-0006, ADR-0009, ADR-0015)
+  (caddy, secure, boot — never agent container stdout, see issue #55),
+  metric filters (Caddy 401s, sshd failures) + alarms, Route53 HTTPS probe
+  on `/ready` + site-down alarm (see ADR-0006, ADR-0009, ADR-0015)
 - `app/` — prod compose stack (`compose.yaml` with pinned Caddy + opencode
-  images, `Caddyfile`, blue-green `switch.sh`, `app.env.example`); local
-  full-chain test via `make test-boot` (see ADR-0007, ADR-0015)
+  images, `Caddyfile`, blue-green `switch.sh`, per-service `*.env.example`);
+  local full-chain test via `make test-boot` (see ADR-0007, ADR-0015)
 - `docs/adr/` — architecture decision records (index + template); add one per
   significant infra/security choice, never rewrite an accepted record
 - `docs/FEATURES.md` — intended-feature contract; update it on every
