@@ -585,6 +585,7 @@ data "aws_iam_policy_document" "deploy_observe" {
       "ssm:AddTagsToResource",
       "ssm:RemoveTagsFromResource",
       "ssm:ListTagsForResource",
+      "ssm:DescribeDocumentPermission",
     ]
     resources = ["arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:document/SSM-SessionManagerRunShell"]
   }
