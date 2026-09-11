@@ -1,5 +1,5 @@
 output "state_bucket" {
-  description = "S3 bucket for terraform state. Copy into backend.hcl."
+  description = "S3 bucket for terraform state. Set as TF_STATE_BUCKET variable."
   value       = aws_s3_bucket.state.bucket
 }
 

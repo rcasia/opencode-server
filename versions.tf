@@ -8,9 +8,9 @@ terraform {
     }
   }
 
-  # S3 backend, completed via backend.hcl (see backend.hcl.example).
-  # Fill backend.hcl after running bootstrap. CI and pre-commit
-  # init with -backend=false, so no bucket is needed there.
+  # S3 backend, completed via -backend-config flags in the pipeline jobs.
+  # Pre-commit inits with -backend=false. Laptops never init real
+  # backends: prod is pipeline-only, no reads either.
   backend "s3" {}
 }
 
