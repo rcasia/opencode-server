@@ -146,7 +146,10 @@ rule 10).
 - **SSM-first access, IMDSv2-only host.** Port 22 opens only when an
   explicit /32 SSH configuration is supplied; otherwise use SSM.
 - **Supply-chain hygiene.** SHA-pinned actions, Dependabot for dependency
-  pins, `tag@digest` images, and a pinned + checksummed compose fallback.
+  pins, `tag@digest` images, a pinned + checksummed compose fallback, a
+  pinned + checksummed AWS CLI zip (floating upstream URL, hash recorded
+  at bump time — mismatch fails boot closed), and coherent provider locks
+  (root + bootstrap both on the v6 line). Rationale: issue #12.
 - **Local testability.** Moto mock plus `make test-boot` with dummy env
   values. The boot test validates provider env/config wiring without real
   provider credentials.
