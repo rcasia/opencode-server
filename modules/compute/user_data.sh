@@ -65,12 +65,27 @@ dnf install -y docker-compose-plugin || {
 docker compose version
 
 mkdir -p /opt/opencode/logs /opt/opencode/host
-rm -rf /opt/opencode/compose.yaml /opt/opencode/Caddyfile /opt/opencode/switch.sh /opt/opencode/opencode.json /opt/opencode/host/app.sh /opt/opencode/host/monitoring.sh
+rm -rf /opt/opencode/compose.yaml /opt/opencode/Caddyfile /opt/opencode/switch.sh /opt/opencode/opencode.json /opt/opencode/nono-profile.json /opt/opencode/nono-version.json /opt/opencode/nono-cli-*.rpm /opt/opencode/host/app.sh /opt/opencode/host/monitoring.sh
+# Pinned nono release (ADR-0025): the RPM bytes ride the S3 bundle, so
+# boot never curls GitHub (ADR-0003). Toolchain per ADR-0024, so the
+# install lives in this bootstrap and bumps replace the host.
+# Bump = reviewed diff of version + SHAs here plus app/nono-version.json
+# (test-boot checks they match).
+NONO_VERSION="0.76.0"
+NONO_ARCH=$(uname -m)
+case "$NONO_ARCH" in
+  x86_64) NONO_RPM="nono-cli-$NONO_VERSION-1.x86_64.rpm"; NONO_SHA256="51ea27fd03cff8e6113deb614cd35a76d2e399d0e1075e061fb12d9c950b02de" ;; # pragma: allowlist secret -- pinned release hash, not a credential
+  aarch64) NONO_RPM="nono-cli-$NONO_VERSION-1.aarch64.rpm"; NONO_SHA256="49ab68c6cfa0b362bf9a480851299b4511a4b2fd20b5fed6c90270e3fc61712a" ;; # pragma: allowlist secret -- pinned release hash, not a credential
+  *) echo "unsupported arch $NONO_ARCH for nono RPM"; exit 1 ;;
+esac
 for _ in $(seq 1 60); do
   aws s3 cp "s3://${app_bundle_bucket}/app/compose.yaml" /opt/opencode/compose.yaml --region "${aws_region}" \
     && aws s3 cp "s3://${app_bundle_bucket}/app/Caddyfile" /opt/opencode/Caddyfile --region "${aws_region}" \
     && aws s3 cp "s3://${app_bundle_bucket}/app/switch.sh" /opt/opencode/switch.sh --region "${aws_region}" \
     && aws s3 cp "s3://${app_bundle_bucket}/app/opencode.json" /opt/opencode/opencode.json --region "${aws_region}" \
+    && aws s3 cp "s3://${app_bundle_bucket}/app/nono-profile.json" /opt/opencode/nono-profile.json --region "${aws_region}" \
+    && aws s3 cp "s3://${app_bundle_bucket}/app/nono-version.json" /opt/opencode/nono-version.json --region "${aws_region}" \
+    && aws s3 cp "s3://${app_bundle_bucket}/app/$NONO_RPM" "/opt/opencode/$NONO_RPM" --region "${aws_region}" \
     && aws s3 cp "s3://${app_bundle_bucket}/app/host/app.sh" /opt/opencode/host/app.sh --region "${aws_region}" \
     && aws s3 cp "s3://${app_bundle_bucket}/app/host/monitoring.sh" /opt/opencode/host/monitoring.sh --region "${aws_region}" \
     && break
@@ -81,7 +96,13 @@ test -f /opt/opencode/switch.sh || { echo "app bundle never appeared"; exit 1; }
 test -f /opt/opencode/opencode.json || { echo "opencode config never appeared"; exit 1; }
 test -f /opt/opencode/host/app.sh || { echo "host stages never appeared"; exit 1; }
 test -f /opt/opencode/host/monitoring.sh || { echo "host stages never appeared"; exit 1; }
+test -f /opt/opencode/nono-profile.json || { echo "nono profile never appeared"; exit 1; }
+test -f "/opt/opencode/$NONO_RPM" || { echo "nono RPM never appeared"; exit 1; }
 chmod +x /opt/opencode/switch.sh /opt/opencode/host/app.sh /opt/opencode/host/monitoring.sh
+ACTUAL_NONO_SHA256=$(sha256sum "/opt/opencode/$NONO_RPM" | cut -d ' ' -f 1)
+[ "$ACTUAL_NONO_SHA256" = "$NONO_SHA256" ] || { echo "nono RPM checksum mismatch"; exit 1; }
+dnf install -y "/opt/opencode/$NONO_RPM"
+nono --version
 
 # Non-secret stage config (SSM parameter NAMES, never values). Written
 # once here; app/monitoring stages source it on every run, including
