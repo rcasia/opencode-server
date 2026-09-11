@@ -239,10 +239,11 @@ echo "PASS: all services restart=always, caddy healthy, oauth2-proxy running, gr
 echo "==> Rehearsing zero-downtime switch (blue -> green via switch.sh)"
 sampler() {
   while true; do
+    TS="$(date +%T)"
     BODY="$(curl -sk --max-time 3 https://localhost/ready || echo CURL-FAIL)"
-    [ "$BODY" = "ready" ] || echo "ready='$BODY'" >>"$SAMPLER_LOG"
+    [ "$BODY" = "ready" ] || echo "$TS ready='$BODY'" >>"$SAMPLER_LOG"
     ROOT="$(curl -sk -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 3 https://localhost/ || echo CURL-FAIL)"
-    case "$ROOT" in 302*oauth2*) ;; *) echo "root='$ROOT'" >>"$SAMPLER_LOG";; esac
+    case "$ROOT" in 302*oauth2*) ;; *) echo "$TS root='$ROOT'" >>"$SAMPLER_LOG";; esac
     sleep 0.2
   done
 }
