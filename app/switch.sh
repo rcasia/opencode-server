@@ -161,6 +161,16 @@ cmd_deploy() {
   docker compose up -d --force-recreate --no-deps "opencode-$IDLE" \
     || fail "could not start opencode-$IDLE, live=$LIVE untouched"
 
+  # Cold edge (dead-host recovery): readiness is probed from inside the
+  # caddy container, so a host with no edge running (failed boot, fresh
+  # disk) must start it before the idle color can prove itself. Normal
+  # deploys skip this: caddy is already up.
+  if ! caddy_running; then
+    log "edge not running, cold-starting caddy + oauth2-proxy"
+    docker compose up -d --no-deps caddy oauth2-proxy \
+      || fail "could not start the edge, live=$LIVE untouched"
+  fi
+
   if ! wait_for_color "$IDLE"; then
     log "opencode-$IDLE never became ready, backing out"
     docker compose stop "opencode-$IDLE" || true
@@ -194,9 +204,11 @@ cmd_deploy() {
     log "blue answers, removing legacy container $LEGACY"
     docker stop "$LEGACY" >/dev/null || true
     docker rm "$LEGACY" >/dev/null || true
-  else
+  elif docker compose ps --status running --services 2>/dev/null | grep -qx "opencode-$LIVE"; then
     log "idle answers, stopping previous live opencode-$LIVE (edge fails over)"
     docker compose stop "opencode-$LIVE" || fail "could not stop opencode-$LIVE"
+  else
+    log "opencode-$LIVE not running (cold edge), nothing to stop"
   fi
 
   log "converging edge services (no-op unless their images changed)"
