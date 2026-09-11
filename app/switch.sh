@@ -95,20 +95,27 @@ caddy_running() {
 }
 
 color_ready() {
+  # -T 5 bounds each probe: without it one hung connection stalls the
+  # whole wait (busybox wget defaults to a 900s read timeout).
   docker compose exec -T caddy \
-    sh -c 'wget -q -O /dev/null --header "Authorization: Basic $BASIC_AUTH" http://opencode-'"$1"':4096/' \
+    sh -c 'wget -T 5 -q -O /dev/null --header "Authorization: Basic $BASIC_AUTH" http://opencode-'"$1"':4096/' \
     >/dev/null 2>&1
 }
 
 wait_for_color() {
-  log "waiting for opencode-$1 to answer (up to ~$((READY_TIMEOUT * 2))s)"
+  log "waiting for opencode-$1 to answer (up to ~$((READY_TIMEOUT * 7))s)"
+  _n=0
   for _ in $(seq 1 "$READY_TIMEOUT"); do
+    _n=$((_n + 1))
     if color_ready "$1"; then
-      log "opencode-$1 is ready"
+      log "opencode-$1 is ready after ${_n} polls"
       return 0
     fi
+    [ "$((_n % 15))" = "0" ] && log "still waiting for opencode-$1 (${_n}/$READY_TIMEOUT polls)"
     sleep 2
   done
+  log "opencode-$1 never became ready; last container logs:"
+  docker compose logs --no-color --tail 50 "opencode-$1" 2>&1 || true
   return 1
 }
 
@@ -417,7 +424,14 @@ cmd_deploy() {
   log "verifying: live color running + edge reports ready"
   docker compose ps --status running --services | grep -qx "opencode-$IDLE" \
     || fail "opencode-$IDLE not running after switch"
-  edge_ready || fail "edge /ready is not 'ready' after switch"
+  # Poll, don't single-shot: Caddy needs a health interval or two to
+  # mark the stopped color down and fail `first` over to the idle one.
+  READY_OK=0
+  for _ in $(seq 1 30); do
+    if edge_ready; then READY_OK=1; break; fi
+    sleep 2
+  done
+  [ "$READY_OK" = "1" ] || fail "edge /ready is not 'ready' after switch"
 
   recover_color "$IDLE" "$DEPLOY_START" || true
 
