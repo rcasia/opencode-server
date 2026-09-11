@@ -133,6 +133,9 @@ aws ssm put-parameter --region eu-west-1 --name /opencode/server-password \
   --type SecureString --value 'YOUR-STRONG-PASSWORD'
 ```
 
+Rotating later: [`docs/credentials-rotation.md`](docs/credentials-rotation.md)
+(overwrite the parameter + one SSM command, no Terraform run).
+
 No DNS step needed: `domain_name` in `environments/prod.tfvars` uses
 `nip.io` wildcard DNS (`54-170-161-9.nip.io` resolves to the EIP), and Caddy
 gets a real Let's Encrypt certificate for it automatically.
@@ -215,6 +218,8 @@ aws ssm put-parameter --region eu-west-1 --name /opencode/github-token \
 The boot helper (`/usr/local/bin/opencode-git-setup.sh`) fetches it and
 configures the container at every boot. Rotating the token takes effect
 on the next deploy — token values never touch the repo or the pipeline.
+Full procedure (verify-before-revoke order):
+[`docs/credentials-rotation.md`](docs/credentials-rotation.md).
 
 Rationale: [`docs/adr/0010-git-auth.md`](docs/adr/0010-git-auth.md).
 
