@@ -39,6 +39,8 @@ echo "==> Validating nono pilot pins (ADR-0025)"
 jq empty nono-profile.json
 jq empty nono-version.json
 MANIFEST_VERSION="$(jq -r .version nono-version.json)"
+MANIFEST_TAR="$(jq -r .artifacts.tar_musl_x86_64.file nono-version.json)"
+MANIFEST_TAR_SHA="$(jq -r .artifacts.tar_musl_x86_64.sha256 nono-version.json)"
 USER_DATA_TAR="$(grep -m1 '^NONO_TAR=' ../modules/compute/user_data.sh | cut -d'"' -f2)"
 [ -n "$USER_DATA_TAR" ] || { echo "FAIL: user_data sets no NONO_TAR pin"; exit 1; }
 for _field in file sha256; do
