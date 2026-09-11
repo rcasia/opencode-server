@@ -62,36 +62,45 @@ test -f /opt/opencode/compose.yaml || { echo "app bundle never appeared"; exit 1
 test -f /opt/opencode/switch.sh || { echo "app bundle never appeared"; exit 1; }
 test -f /opt/opencode/opencode.json || { echo "opencode config never appeared"; exit 1; }
 chmod +x /opt/opencode/switch.sh
-cat > /opt/opencode/app.env <<ENV_EOF
-DOMAIN=${domain_name}
-OAUTH2_PROXY_CLIENT_ID=${github_oauth_client_id}
-OAUTH2_PROXY_GITHUB_USERS=${github_oauth_user}
-OAUTH2_PROXY_REDIRECT_URL=https://${domain_name}/oauth2/callback
-ENV_EOF
-chmod 600 /opt/opencode/app.env
 
-# Secrets from SSM: keep xtrace disabled for every secret fetch/write.
+# Re-fetches all runtime secrets from SSM without tracing. This is also the
+# single manual rotation path: update SSM, run this script, then switch the
+# backend color so the new environment is picked up without host replacement.
+cat > /usr/local/bin/opencode-secrets-refresh.sh <<'SECRET_EOF'
+#!/bin/bash
 set +x
+set -euo pipefail
+umask 077
+TMP=$(mktemp /opt/opencode/app.env.XXXXXX)
+trap 'rm -f "$TMP"' EXIT
+printf 'DOMAIN=%s\n' "${domain_name}" >> "$TMP"
+printf 'OAUTH2_PROXY_CLIENT_ID=%s\n' "${github_oauth_client_id}" >> "$TMP"
+printf 'OAUTH2_PROXY_GITHUB_USERS=%s\n' "${github_oauth_user}" >> "$TMP"
+printf 'OAUTH2_PROXY_REDIRECT_URL=https://%s/oauth2/callback\n' "${domain_name}" >> "$TMP"
 VALUE=$(aws ssm get-parameter --name "${opencode_password_parameter}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
-printf 'OPENCODE_SERVER_PASSWORD=%s\n' "$VALUE" >> /opt/opencode/app.env
+printf 'OPENCODE_SERVER_PASSWORD=%s\n' "$VALUE" >> "$TMP"
 BASIC=$(printf 'opencode:%s' "$VALUE" | base64 | tr -d '\n')
-printf 'BASIC_AUTH=%s\n' "$BASIC" >> /opt/opencode/app.env
+printf 'BASIC_AUTH=%s\n' "$BASIC" >> "$TMP"
 unset VALUE BASIC
 OAUTH_SECRET=$(aws ssm get-parameter --name "${github_oauth_secret_parameter}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
-printf 'OAUTH2_PROXY_CLIENT_SECRET=%s\n' "$OAUTH_SECRET" >> /opt/opencode/app.env
+printf 'OAUTH2_PROXY_CLIENT_SECRET=%s\n' "$OAUTH_SECRET" >> "$TMP"
 unset OAUTH_SECRET
 COOKIE_SECRET=$(aws ssm get-parameter --name "${oauth_cookie_secret_parameter}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
-printf 'OAUTH2_PROXY_COOKIE_SECRET=%s\n' "$COOKIE_SECRET" >> /opt/opencode/app.env
+printf 'OAUTH2_PROXY_COOKIE_SECRET=%s\n' "$COOKIE_SECRET" >> "$TMP"
 unset COOKIE_SECRET
 %{ for env_name, parameter_name in provider_api_key_parameters ~}
 %{ if parameter_name != "" ~}
 PROVIDER_VALUE=$(aws ssm get-parameter --name "${parameter_name}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
-printf '${env_name}=%s\n' "$PROVIDER_VALUE" >> /opt/opencode/app.env
+printf '${env_name}=%s\n' "$PROVIDER_VALUE" >> "$TMP"
 unset PROVIDER_VALUE
 %{ endif ~}
 %{ endfor ~}
-set -x
-chmod 600 /opt/opencode/app.env
+chmod 600 "$TMP"
+mv -f "$TMP" /opt/opencode/app.env
+trap - EXIT
+SECRET_EOF
+chmod 700 /usr/local/bin/opencode-secrets-refresh.sh
+/usr/local/bin/opencode-secrets-refresh.sh
 
 cd /opt/opencode
 docker compose up -d caddy oauth2-proxy opencode-blue
