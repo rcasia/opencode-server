@@ -35,7 +35,11 @@ rule 10).
    `302`-to-`/oauth2/*` gate, unauthenticated `/ping` for edge liveness
    plus public `/ready` (200 `"ready"` only while a backend color
    answers; bodies masked so the UI never leaks past SSO) as the
-   readiness gate for deploys and uptime probing.
+   readiness gate for deploys and uptime probing. The edge sends
+   security headers (HSTS on real domains, nosniff, DENY/frame-ancestors,
+   no-referrer, no Server banner), caps request bodies at 10MB, and all
+   services run under memory/PID ceilings with dropped caps and
+   no-new-privileges where safe.
    (`app/`, ADR-0001, ADR-0005, ADR-0014, ADR-0015)
 - **Persistent state.** 10 GB encrypted EBS at `/var/lib/docker`:
   sessions, images, workspace, and certs survive replacement. Only a
@@ -79,6 +83,10 @@ rule 10).
 - **Cheap by design.** Single AZ public subnet, no NAT, `t3.small`, EIP
   attached, ~$0.50/mo probes + ~$0.80/mo data disk. Cost-increasing
   changes must be called out.
+- **SSM-first access, IMDSv2-only host.** Port 22 opens only when
+  `ssh_public_key` is set (paired with an explicit `/32`); default and
+  SSM-only deploys expose no SSH ingress. EC2 metadata requires IMDSv2
+  session tokens (hop limit 1). (ADR-0016)
 - **Supply-chain hygiene.** SHA-pinned actions, Dependabot (21-day
   cooldown) for actions/terraform/compose-image pins, `tag@digest`
   images. (ADR-0003)
