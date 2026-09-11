@@ -12,6 +12,45 @@
 # the ready one with retries instead of failures. Never recreate Caddy on
 # a backend deploy — `caddy reload` (or nothing) is enough.
 {$DOMAIN} {
+	# Edge hardening (issue #11). Every directive below is Caddy 2.11
+	# core, so `caddy adapt`/`validate` pass unchanged both with
+	# DOMAIN=localhost (test-boot) and with a public FQDN.
+	#
+	# NOTE: no `rate_limit` here on purpose. Stock caddy:2.11-alpine
+	# has no rate_limit handler (it is an xcaddy-only plugin,
+	# mholt/caddy-ratelimit, not compiled into the official image),
+	# so a rate_limit block would fail `caddy adapt`. Brute-force
+	# detection stays on the monitoring login-probe alarm until the
+	# edge image ships a limiter.
+	request_body {
+		# Cap request bodies edge-wide (default: unbounded). 10MB
+		# leaves ample headroom for agent API posts while blunting
+		# large-body DoS against the backends; the SSO login and
+		# callback posts are a few KB.
+		max_size 10MB
+	}
+	header {
+		# No MIME sniffing; no clickjacking (belt and braces: legacy
+		# X-Frame-Options plus modern frame-ancestors — the UI and the
+		# oauth2-proxy login page are top-level navigations, never
+		# iframed); no Referer leakage (the SSO flow carries its
+		# return URL in the explicit ?rd= param, never in Referer);
+		# drop the Server banner. None of these alter status codes,
+		# bodies, or redirect targets, so /ping, /ready, /oauth2/*,
+		# and the 302-to-/oauth2/* gate behave exactly as before.
+		-Server
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Content-Security-Policy "frame-ancestors 'none'"
+		Referrer-Policy "no-referrer"
+	}
+	# HSTS only for real domains: never pin localhost (test-boot uses
+	# DOMAIN=localhost with a local CA cert; a localhost pin would be
+	# wrong). A prod Host is the public FQDN, so it always matches and
+	# gets the pin. `preload` is deliberately omitted (needs registry
+	# submission and pins aggressively).
+	@hsts not host localhost 127.0.0.1
+	header @hsts Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	# Unauthenticated liveness probe for the edge itself. Answers even
 	# when both backends are down — tells edge apart from app.
 	handle /ping {
