@@ -1,4 +1,0 @@
-#!/bin/bash
-# Test stub: no privileges in build. Records the call, succeeds.
-echo "mount $*" >> /var/log/stub-systemctl.log
-exit 0

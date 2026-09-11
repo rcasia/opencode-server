@@ -1,8 +1,0 @@
-# Keep the boot-test build context small (providers are hundreds of MB).
-# NOTE: app/.rendered-user-data.sh is gitignored but MUST stay in context
-# (the Dockerfile COPYs it); do not add it here.
-.terraform/
-.git/
-app/app.env
-app/logs/
-environments/local.auto.tfvars.json

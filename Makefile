@@ -1,4 +1,4 @@
-.PHONY: help fmt validate pre-commit local-up local-down plan-local apply-local destroy-local test-boot test-bootstrap
+.PHONY: help fmt validate pre-commit local-up local-down plan-local apply-local destroy-local test-boot
 
 LOCAL_VARS := environments/local.tfvars
 LOCAL_BACKEND := environments/local.backend.hcl
@@ -10,7 +10,6 @@ help:
 	@echo "Targets: fmt | validate | pre-commit"
 	@echo "         local-up | local-down | plan-local | apply-local | destroy-local"
 	@echo "         test-boot (full-chain local test of app/ via compose, dummy env)"
-	@echo "         test-bootstrap (executes rendered user_data in AL2023, needs local-up)"
 	@echo "Prod is pipeline-only (no reads either): no plan, apply, or backend init from a laptop."
 
 fmt:
@@ -49,6 +48,3 @@ destroy-local:
 
 test-boot:
 	./scripts/test-boot.sh
-
-test-bootstrap:
-	./scripts/test-bootstrap.sh

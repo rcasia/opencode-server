@@ -7,9 +7,7 @@
 #   gate, needs bootstrap): OIDC -> S3 init -> plan -> apply (only when the
 #   plan has changes) -> smoke test. Then deploy-app for app-only changes.
 #   PR runs skip bootstrap/deploy-prod/deploy-app (no secrets on PRs, never
-#   deploy). Docs-only pushes skip the slow jobs. The bootstrap test
-#   (test-bootstrap.sh) is intentionally NOT in the pipeline — too slow;
-#   run it locally via make when changing user_data. All gates fail open:
+#   deploy). Docs-only pushes skip the slow jobs. All gates fail open:
 #   if the filter job breaks, everything runs.
 # Requirements: AWS_ROLE_ARN secret + TF_STATE_BUCKET variable, else the
 #   deploy job fails red. Optional: ALERT_EMAIL variable (intrusion alarm
