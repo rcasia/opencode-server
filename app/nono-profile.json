@@ -3,7 +3,7 @@
   "meta": {
     "name": "opencode-server",
     "version": "1.0.0",
-    "description": "Pilot sandbox for the opencode web backend (issue #30, ADR-0020/ADR-0025). Allows the container workspace (/root/workspace workdir), opencode config/data/cache paths, and port 4096; egress filtered through the 'opencode' network profile (provider APIs + GitHub); docker.sock, IMDS, and credential paths denied. Agent git push keeps working through a single-file grant for the container git-credentials file. The workdir sits below /root on purpose: a workdir grant on /root overlaps the inherited credential denies and nono refuses to start on Linux (deny-under-allow is unenforceable under Landlock)."
+    "description": "Pilot sandbox for the opencode web backend (issue #30, ADR-0020/ADR-0025). Allows the container workspace (/root/workspace workdir), opencode config/data/cache paths, and port 4096; egress filtered through the 'opencode' network profile (provider APIs + GitHub) plus allow_domain opencode.ai (the opencode provider the web UI calls per prompt); docker.sock, IMDS, and credential paths denied. Agent git push keeps working through a single-file grant for the container git-credentials file. The workdir sits below /root on purpose: a workdir grant on /root overlaps the inherited credential denies and nono refuses to start on Linux (deny-under-allow is unenforceable under Landlock)."
   },
   "groups": {
     "include": [
@@ -48,6 +48,7 @@
   },
   "network": {
     "network_profile": "opencode",
+    "allow_domain": ["opencode.ai"],
     "listen_port": [
       4096
     ]

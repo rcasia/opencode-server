@@ -69,7 +69,7 @@ rule 10).
   waits for it and a git failure only warns — it never fails boot.
 - **Sandboxed backend.** Both backend colors run `opencode web` under
   `nono` (Landlock) with the checked-in `app/nono-profile.json`:
-  workspace + port 4096 + provider/GitHub egress allowed; IMDS,
+   workspace + port 4096 + provider/GitHub/opencode.ai egress allowed; IMDS,
   credential paths, and `docker.sock` denied. The pinned nono musl
   tarball rides the S3 bundle (CI verifies SHA, boot installs from
   disk; static binary serves host and container — no distro RPM).

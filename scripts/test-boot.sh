@@ -163,7 +163,13 @@ READY_BODY="$(curl -sk --max-time 10 https://localhost/ready || true)"
 [ "$READY_BODY" = "ready" ] || { echo "FAIL: /ready body is '$READY_BODY', want 'ready'"; exit 1; }
 echo "PASS: public /ready answers 'ready' (a backend color answers behind the edge)"
 
+echo "==> Probing backend API route (GET /command, the web UI calls it per directory)"
+CMD_RESP="$(docker compose exec -T caddy sh -c 'curl -s --max-time 10 -o /dev/null -w "%{http_code}" -H "Authorization: Basic $BASIC_AUTH" "http://opencode-blue:4096/command?directory=/root/workspace"' || true)"
+[ "$CMD_RESP" = "200" ] || { echo "FAIL: backend /command returned '$CMD_RESP', want 200"; exit 1; }
+echo "PASS: backend /command answers 200 for the workspace directory"
+
 echo "==> Asserting per-service env isolation (ADR-0028)"
+echo "==> Asserting backend password and provider keys are wired"
 [ "$(docker compose exec -T opencode-blue printenv OPENCODE_SERVER_PASSWORD)" = "$DUMMY" ] \
   || { echo "FAIL: OPENCODE_SERVER_PASSWORD not set in opencode-blue"; exit 1; }
 [ "$(docker compose exec -T opencode-blue printenv ANTHROPIC_API_KEY)" = "boot-test-anthropic-key" ] \
@@ -266,6 +272,12 @@ sandbox sh -c 'rm -rf /tmp/sandbox-probe && mkdir -p /tmp/sandbox-probe && cd /t
   || { echo "FAIL: git commit does not work inside sandbox"; exit 1; }
 echo "PASS: git works inside sandbox (init + commit)"
 
+echo "==> Probing opencode.ai egress (the web UI prompts through the opencode provider)"
+ZEN_BODY="$(sandbox curl -s --max-time 20 https://opencode.ai/ || true)"
+printf '%s' "$ZEN_BODY" | grep -qi 'not in the allowlist' \
+  && { echo "FAIL: opencode.ai blocked from inside sandbox"; exit 1; }
+echo "PASS: opencode.ai reachable through sandbox egress proxy"
+
 echo "==> Probing provider egress with a dummy-credential model call"
 MODEL_OUT="$(sandbox timeout 120 opencode run 'reply with the single word ok' 2>&1 || true)"
 if printf '%s' "$MODEL_OUT" | grep -qiE '401|unauthori[sz]ed|invalid api key|invalid.*key|authentication failed'; then
@@ -343,6 +355,9 @@ RSID="$(docker compose exec -T caddy sh -c 'curl -s --max-time 10 -X POST -H "Au
 [ -n "$RSID" ] && [ "$RSID" != "null" ] || { echo "FAIL: could not create recovery probe session"; exit 1; }
 docker compose exec -T caddy sh -c 'curl -s --max-time 10 -X POST -H "Authorization: Basic $BASIC_AUTH" -H "Content-Type: application/json" -d '\''{"parts":[{"type":"text","text":"recovery probe"}],"model":{"providerID":"anthropic","modelID":"claude-sonnet-4-5"},"agent":"build","noReply":true}'\'' http://opencode-green:4096/session/'"$RSID"'/message' >/dev/null \
   || { echo "FAIL: could not seed dangling user message"; exit 1; }
+MGET_CODE="$(docker compose exec -T caddy sh -c 'curl -s --max-time 10 -o /dev/null -w "%{http_code}" -H "Authorization: Basic $BASIC_AUTH" http://opencode-green:4096/session/'"$RSID"'/message?limit=20' || true)"
+[ "$MGET_CODE" = "200" ] || { echo "FAIL: backend session message history returned '$MGET_CODE', want 200"; exit 1; }
+echo "PASS: backend session message history answers 200 (data route serves)"
 COMPOSE_DIR="$APP_DIR" ./switch.sh recover green
 RTITLE="$(docker compose exec -T caddy sh -c 'curl -s --max-time 10 -H "Authorization: Basic $BASIC_AUTH" http://opencode-green:4096/session/'"$RSID" | jq -r .title)"
 case "$RTITLE" in
