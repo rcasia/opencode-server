@@ -23,7 +23,12 @@ rule 10).
   aborts with live untouched. Rollback = revert + push.
   (`bundle.tf`, `app/switch.sh`, ADR-0015)
 - **Cattle hosts.** Any `user_data` change replaces the instance
-  (`user_data_replace_on_change`); EIP and data volume survive.
+  (`user_data_replace_on_change`); EIP and data volume survive. The
+  zero-downtime promise above covers app deploys only: a host replacement
+  is a planned-maintenance event with minutes of downtime while the new
+  box boots and the EIP swings (single host, single data disk — there is
+  no second box to fail over to). A failed smoke test dumps the boot log
+  via SSM into the `deploy-prod` job log.
   (ADR-0008)
 
 ## Serve
