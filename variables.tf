@@ -115,7 +115,7 @@ variable "provider_api_key_parameters" {
 }
 
 variable "alert_email" {
-  description = "Email for intrusion alarms. Empty disables the email subscription."
+  description = "Email for intrusion alarms. Empty disables the email subscription (deploy-prod warns, never fails)."
   type        = string
   default     = ""
 }

@@ -232,7 +232,24 @@ Cost is cents per month (log ingestion + 2 alarms).
 Setup: set the `ALERT_EMAIL` Actions secret (repo Settings → Secrets
 and variables → Actions → Secrets tab, so the address is masked in logs), push, then click the SNS
 confirmation email (subscription stays `PendingConfirmation` until you do
-— no emails before that).
+— no emails before that). Deploys warn (never fail) when the secret is
+unset — alarms still exist, they just page nobody.
+
+Verify delivery end to end with a forced alarm state (no thresholds
+touched, email arrives in ~1 min):
+
+```bash
+aws cloudwatch set-alarm-state --region eu-west-1 \
+  --alarm-name opencode-prod-login-probe \
+  --state-value ALARM --state-reason "forced threshold test"
+```
+
+Watch `NumberOfNotificationsDelivered` on the `opencode-prod-alerts`
+topic in CloudWatch Metrics for proof the email left SNS — the email
+protocol exposes no per-message delivery-status API, so that metric
+plus the forced test above is the delivery audit. No
+success-after-probing correlation by design: a login success following
+a 401 window is an expected operator login, not an alarm (issue #13).
 
 Uptime is watched separately: Route 53 probes the public `/ready` gate
 every 30s and pages after 3 failures (~$0.50/mo) — full chain (edge +

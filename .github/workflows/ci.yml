@@ -313,6 +313,15 @@ jobs:
           aws s3 cp "/tmp/${MUSL_TAR}" "s3://$BUCKET/app/${MUSL_TAR}" --sse AES256 --region "${{ env.AWS_REGION }}"
       - name: Terraform validate
         run: terraform validate
+      # Fail-open alarm check (issue #13): an empty ALERT_EMAIL leaves the
+      # alarms paging nobody. Warn loudly but never block the deploy.
+      - name: Warn when ALERT_EMAIL is unset (alarms notify nobody)
+        run: |
+          if [ -z "${{ secrets.ALERT_EMAIL }}" ]; then
+            echo "::warning::ALERT_EMAIL is unset — intrusion alarms page nobody. Set the repo secret ALERT_EMAIL, then confirm the SNS subscription email (PendingConfirmation sends nothing)."
+          else
+            echo "ALERT_EMAIL is set; email subscription active."
+          fi
       - name: Terraform plan
         id: plan
         env:

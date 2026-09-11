@@ -93,7 +93,11 @@ rule 10).
 
 - **Intrusion alerting.** SSO-deny and backend authentication bursts,
   sshd failures, backend 5xx bursts, and sustained host CPU can page via
-  CloudWatch/SNS.
+  CloudWatch/SNS. An unset `ALERT_EMAIL` warns in deploy-prod but never
+  blocks (alarms page nobody until the SNS email is confirmed). Delivery
+  is verified by forced alarm state + the topic's Delivered metric (the
+  email protocol exposes no per-message status API); no
+  success-after-probing correlation by design (issue #13).
 - **Host health.** Data-disk use above 80% and memory above 90% (15 min)
   page via the same topic. Growth is bounded by construction: container
   logs capped at the daemon (10 MB x3), Caddy access log rotated
