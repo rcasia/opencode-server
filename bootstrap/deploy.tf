@@ -528,7 +528,10 @@ data "aws_iam_policy_document" "deploy_observe" {
   }
 
   # Account audit trail (modules/monitoring): explicit action list on the
-  # project trail ARN (no service-wide wildcard).
+  # project trail ARN (no service-wide wildcard). CloudTrail tags trails
+  # via AddTags/RemoveTags/ListTags — TagResource/UntagResource do not
+  # exist in this namespace, and default_tags on the trail makes CreateTrail
+  # call AddTags (a wrong name fails the whole apply mid-flight).
   statement {
     sid = "Trail"
     actions = [
@@ -540,8 +543,9 @@ data "aws_iam_policy_document" "deploy_observe" {
       "cloudtrail:StartLogging",
       "cloudtrail:StopLogging",
       "cloudtrail:DescribeTrails",
-      "cloudtrail:TagResource",
-      "cloudtrail:UntagResource",
+      "cloudtrail:AddTags",
+      "cloudtrail:RemoveTags",
+      "cloudtrail:ListTags",
     ]
     resources = ["arn:aws:cloudtrail:${var.aws_region}:*:trail/${var.project}-*"]
   }
