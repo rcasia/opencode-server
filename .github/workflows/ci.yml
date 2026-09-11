@@ -47,6 +47,7 @@ jobs:
               - 'app/Caddyfile'
               - 'app/switch.sh'
               - 'app/opencode.json'
+              - 'app/host/**'
             pipeline:
               - '.github/**'
               - 'Makefile'
@@ -263,6 +264,8 @@ jobs:
           aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/switch.sh "s3://$BUCKET/app/switch.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/opencode.json "s3://$BUCKET/app/opencode.json" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/host/app.sh "s3://$BUCKET/app/host/app.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/host/monitoring.sh "s3://$BUCKET/app/host/monitoring.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
       - name: Terraform validate
         run: terraform validate
       - name: Terraform plan
@@ -295,6 +298,8 @@ jobs:
           aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/switch.sh "s3://$BUCKET/app/switch.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/opencode.json "s3://$BUCKET/app/opencode.json" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/host/app.sh "s3://$BUCKET/app/host/app.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/host/monitoring.sh "s3://$BUCKET/app/host/monitoring.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
       - name: Smoke test (site answers through TLS + SSO gate)
         if: steps.plan.outputs.exitcode == '2'
         run: |
@@ -389,11 +394,13 @@ jobs:
           aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/switch.sh "s3://$BUCKET/app/switch.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/opencode.json "s3://$BUCKET/app/opencode.json" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/host/app.sh "s3://$BUCKET/app/host/app.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/host/monitoring.sh "s3://$BUCKET/app/host/monitoring.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
       - name: Blue-green switch via SSM
         run: |
           IID="$(terraform output -raw instance_id)"
           BUCKET="$(terraform output -raw app_bundle_bucket)"
-          CMD_ID="$(aws ssm send-command --instance-ids "$IID" --document-name "AWS-RunShellScript" --parameters "commands=[\"cd /opt/opencode && aws s3 cp s3://$BUCKET/app/compose.yaml compose.yaml --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/Caddyfile Caddyfile --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/switch.sh switch.sh --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/opencode.json opencode.json --region ${{ env.AWS_REGION }} && chmod +x switch.sh && ./switch.sh deploy && (/usr/local/bin/opencode-git-setup.sh || echo 'WARNING: git setup failed (non-blocking)')\"]" --query "Command.CommandId" --output text)"
+          CMD_ID="$(aws ssm send-command --instance-ids "$IID" --document-name "AWS-RunShellScript" --parameters "commands=[\"cd /opt/opencode && aws s3 cp s3://$BUCKET/app/compose.yaml compose.yaml --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/Caddyfile Caddyfile --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/switch.sh switch.sh --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/opencode.json opencode.json --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/host/app.sh host/app.sh --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/host/monitoring.sh host/monitoring.sh --region ${{ env.AWS_REGION }} && chmod +x switch.sh host/app.sh host/monitoring.sh && host/app.sh secrets && host/monitoring.sh && ./switch.sh deploy && (host/app.sh git-setup || echo 'WARNING: git setup failed (non-blocking)')\"]" --query "Command.CommandId" --output text)"
           for _ in $(seq 1 60); do
             STATUS="$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query Status --output text 2>/dev/null || echo Pending)"
             echo "ssm status: $STATUS"
