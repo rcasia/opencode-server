@@ -1,8 +1,8 @@
 # App bundle bucket (ADR-0011, ADR-0015): the deployable behind zero-downtime
-# app deploys. user_data fetches compose.yaml + Caddyfile + switch.sh from
-# here at boot; deploy-app re-uploads on app/** changes and switches colors
-# via SSM. Versioned: rollback = revert commit + push. Contents are
-# reproducible from git, so force_destroy is safe.
+# app deploys. user_data fetches compose.yaml + Caddyfile + switch.sh +
+# opencode.json + host/ stages from here at boot; deploy-app re-uploads on
+# app/** changes and switches colors via SSM. Versioned: rollback = revert
+# commit + push. Contents are reproducible from git, so force_destroy is safe.
 
 data "aws_caller_identity" "current" {}
 
@@ -161,6 +161,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "app_bundle" {
 }
 
 output "app_bundle_bucket" {
-  description = "S3 bucket holding the deployed app bundle (compose.yaml, Caddyfile, switch.sh)"
+  description = "S3 bucket holding the deployed app bundle (compose.yaml, Caddyfile, switch.sh, opencode.json, host/ stages)"
   value       = aws_s3_bucket.app_bundle.bucket
 }

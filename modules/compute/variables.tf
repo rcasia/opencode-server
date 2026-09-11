@@ -60,7 +60,7 @@ variable "github_token_parameter" {
 }
 
 variable "app_bundle_bucket" {
-  description = "S3 bucket holding the app bundle (compose.yaml, Caddyfile, switch.sh, opencode.json)"
+  description = "S3 bucket holding the app bundle (compose.yaml, Caddyfile, switch.sh, opencode.json, host/ stages)"
   type        = string
 }
 

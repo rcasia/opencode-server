@@ -1,4 +1,8 @@
 #!/bin/bash
+# Thin bootstrap caller (ADR-0024). Host-replacing changes live ONLY here
+# (disk layout, docker install, toolchain). The app and monitoring stages
+# are static scripts shipped via the S3 bundle and executed below; their
+# changes deploy over SSM with no replacement.
 set -eux
 
 dnf update -y
@@ -60,144 +64,65 @@ dnf install -y docker-compose-plugin || {
 }
 docker compose version
 
-mkdir -p /opt/opencode/logs
-rm -rf /opt/opencode/compose.yaml /opt/opencode/Caddyfile /opt/opencode/switch.sh /opt/opencode/opencode.json
+mkdir -p /opt/opencode/logs /opt/opencode/host
+rm -rf /opt/opencode/compose.yaml /opt/opencode/Caddyfile /opt/opencode/switch.sh /opt/opencode/opencode.json /opt/opencode/host/app.sh /opt/opencode/host/monitoring.sh
 for _ in $(seq 1 60); do
   aws s3 cp "s3://${app_bundle_bucket}/app/compose.yaml" /opt/opencode/compose.yaml --region "${aws_region}" \
     && aws s3 cp "s3://${app_bundle_bucket}/app/Caddyfile" /opt/opencode/Caddyfile --region "${aws_region}" \
     && aws s3 cp "s3://${app_bundle_bucket}/app/switch.sh" /opt/opencode/switch.sh --region "${aws_region}" \
     && aws s3 cp "s3://${app_bundle_bucket}/app/opencode.json" /opt/opencode/opencode.json --region "${aws_region}" \
+    && aws s3 cp "s3://${app_bundle_bucket}/app/host/app.sh" /opt/opencode/host/app.sh --region "${aws_region}" \
+    && aws s3 cp "s3://${app_bundle_bucket}/app/host/monitoring.sh" /opt/opencode/host/monitoring.sh --region "${aws_region}" \
     && break
   sleep 5
 done
 test -f /opt/opencode/compose.yaml || { echo "app bundle never appeared"; exit 1; }
 test -f /opt/opencode/switch.sh || { echo "app bundle never appeared"; exit 1; }
 test -f /opt/opencode/opencode.json || { echo "opencode config never appeared"; exit 1; }
-chmod +x /opt/opencode/switch.sh
+test -f /opt/opencode/host/app.sh || { echo "host stages never appeared"; exit 1; }
+test -f /opt/opencode/host/monitoring.sh || { echo "host stages never appeared"; exit 1; }
+chmod +x /opt/opencode/switch.sh /opt/opencode/host/app.sh /opt/opencode/host/monitoring.sh
 
-# Re-fetches all runtime secrets from SSM without tracing. This is also the
-# single manual rotation path: update SSM, run this script, then switch the
-# backend color so the new environment is picked up without host replacement.
-cat > /usr/local/bin/opencode-secrets-refresh.sh <<'SECRET_EOF'
-#!/bin/bash
-set +x
-set -euo pipefail
+# Non-secret stage config (SSM parameter NAMES, never values). Written
+# once here; app/monitoring stages source it on every run, including
+# SSM re-runs. Values are %q-escaped at boot so spaces in operator vars
+# (e.g. git user.name) survive sourcing; single quotes in values are not
+# supported. Terraform var changes re-render this file, so they still
+# replace the host — only stage SCRIPT changes ship without replacement.
 umask 077
-TMP=$(mktemp /opt/opencode/app.env.XXXXXX)
-trap 'rm -f "$TMP"' EXIT
-printf 'DOMAIN=%s\n' "${domain_name}" >> "$TMP"
-printf 'OAUTH2_PROXY_CLIENT_ID=%s\n' "${github_oauth_client_id}" >> "$TMP"
-printf 'OAUTH2_PROXY_GITHUB_USERS=%s\n' "${github_oauth_user}" >> "$TMP"
-printf 'OAUTH2_PROXY_REDIRECT_URL=https://%s/oauth2/callback\n' "${domain_name}" >> "$TMP"
-VALUE=$(aws ssm get-parameter --name "${opencode_password_parameter}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
-printf 'OPENCODE_SERVER_PASSWORD=%s\n' "$VALUE" >> "$TMP"
-BASIC=$(printf 'opencode:%s' "$VALUE" | base64 | tr -d '\n')
-printf 'BASIC_AUTH=%s\n' "$BASIC" >> "$TMP" # pragma: allowlist secret -- derived from an SSM secret at runtime
-unset VALUE BASIC
-OAUTH_SECRET=$(aws ssm get-parameter --name "${github_oauth_secret_parameter}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
-printf 'OAUTH2_PROXY_CLIENT_SECRET=%s\n' "$OAUTH_SECRET" >> "$TMP"
-unset OAUTH_SECRET
-COOKIE_SECRET=$(aws ssm get-parameter --name "${oauth_cookie_secret_parameter}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
-printf 'OAUTH2_PROXY_COOKIE_SECRET=%s\n' "$COOKIE_SECRET" >> "$TMP"
-unset COOKIE_SECRET
+{
+printf 'DOMAIN=%q\n' '${domain_name}'
+printf 'GITHUB_OAUTH_CLIENT_ID=%q\n' '${github_oauth_client_id}'
+printf 'GITHUB_OAUTH_USER=%q\n' '${github_oauth_user}'
+printf 'OPENCODE_PASSWORD_PARAMETER=%q\n' '${opencode_password_parameter}'
+printf 'GITHUB_OAUTH_SECRET_PARAMETER=%q\n' '${github_oauth_secret_parameter}'
+printf 'OAUTH_COOKIE_SECRET_PARAMETER=%q\n' '${oauth_cookie_secret_parameter}'
+printf 'GITHUB_TOKEN_PARAMETER=%q\n' '${github_token_parameter}'
+printf 'GIT_USER_NAME=%q\n' '${git_user_name}'
+printf 'GIT_USER_EMAIL=%q\n' '${git_user_email}'
+printf 'AWS_REGION=%q\n' '${aws_region}'
+printf 'NAME_PREFIX=%q\n' '${name_prefix}'
+} > /opt/opencode/stage.env
+chmod 600 /opt/opencode/stage.env
+cat > /opt/opencode/provider-map.sh <<'PROVIDER_EOF'
+# Rendered by bootstrap: one fetch_provider call per configured provider.
 %{ for env_name, parameter_name in provider_api_key_parameters ~}
 %{ if parameter_name != "" ~}
-PROVIDER_VALUE=$(aws ssm get-parameter --name "${parameter_name}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
-printf '${env_name}=%s\n' "$PROVIDER_VALUE" >> "$TMP"
-unset PROVIDER_VALUE
+fetch_provider "${env_name}" "${parameter_name}"
 %{ endif ~}
 %{ endfor ~}
-chmod 600 "$TMP"
-mv -f "$TMP" /opt/opencode/app.env
-trap - EXIT
-SECRET_EOF
+PROVIDER_EOF
+chmod 600 /opt/opencode/provider-map.sh
+
+# Stable entry points (docs/credentials-rotation.md): thin wrappers so the
+# documented rotation commands keep working while the logic lives in app.sh.
+printf '#!/bin/bash\nexec /opt/opencode/host/app.sh secrets\n' > /usr/local/bin/opencode-secrets-refresh.sh
 chmod 700 /usr/local/bin/opencode-secrets-refresh.sh
-/usr/local/bin/opencode-secrets-refresh.sh
-
-cd /opt/opencode
-docker compose up -d caddy oauth2-proxy opencode-blue
-echo blue > /opt/opencode/.live-color
-docker compose ps
-
-cat > /usr/local/bin/opencode-git-setup.sh <<'GIT_EOF'
-#!/bin/bash
-set +x
-set -euo pipefail
-COMPOSE="docker compose -f /opt/opencode/compose.yaml"
-LIVE=$(cat /opt/opencode/.live-color 2>/dev/null || echo blue)
-TARGET="opencode-$LIVE"
-for _ in $(seq 1 120); do
-  $COMPOSE ps --status running --services 2>/dev/null | grep -q "^$TARGET$" && break
-  sleep 5
-done
-GH_PAT=$(aws ssm get-parameter --name "${github_token_parameter}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
-[ -n "${git_user_name}" ] && $COMPOSE exec -T $TARGET git config --global user.name "${git_user_name}" || true
-[ -n "${git_user_email}" ] && $COMPOSE exec -T $TARGET git config --global user.email "${git_user_email}" || true
-$COMPOSE exec -T $TARGET git config --global credential.helper store
-printf 'https://x-access-token:%s@github.com\n' "$GH_PAT" | $COMPOSE exec -T -i $TARGET sh -c 'cat > /root/.git-credentials && chmod 600 /root/.git-credentials' # pragma: allowlist secret
-$COMPOSE exec -T $TARGET git config --global credential.helper | grep -q '^store$' || { echo "WARNING: git credential helper not applied" >&2; exit 1; }
-GIT_EOF
+printf '#!/bin/bash\nexec /opt/opencode/host/app.sh git-setup\n' > /usr/local/bin/opencode-git-setup.sh
 chmod +x /usr/local/bin/opencode-git-setup.sh
-/usr/local/bin/opencode-git-setup.sh || echo "WARNING: git setup failed; re-run /usr/local/bin/opencode-git-setup.sh" >&2
 
-cat > /etc/systemd/system/opencode-colors.service <<'UNIT_EOF'
-[Unit]
-Description=Reconcile opencode blue-green colors after boot
-After=docker.service
-Requires=docker.service
-
-[Service]
-Type=oneshot
-ExecStart=/opt/opencode/switch.sh reconcile
-
-[Install]
-WantedBy=multi-user.target
-UNIT_EOF
-systemctl daemon-reload
-systemctl enable opencode-colors.service
-
-# Weekly image prune (ADR-0019): stale backend/edge images are the main
-# disk hog. Images only, never volumes: workspace, opencode data, and
-# Caddy state live in named volumes on this disk and must survive.
-cat > /etc/systemd/system/docker-prune.service <<'PRUNE_EOF'
-[Unit]
-Description=Prune unused Docker images
-After=docker.service
-Requires=docker.service
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/docker image prune -af
-PRUNE_EOF
-cat > /etc/systemd/system/docker-prune.timer <<'PRUNE_TIMER_EOF'
-[Unit]
-Description=Weekly Docker image prune
-
-[Timer]
-OnCalendar=weekly
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-PRUNE_TIMER_EOF
-systemctl enable --now docker-prune.timer
-
-systemctl enable --now rsyslog
-cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<CW_EOF
-{
-  "agent": { "metrics_collection_interval": 60, "run_as_user": "root" },
-  "metrics": { "metrics_collected": {
-    "mem": { "measurement": ["mem_used_percent"], "metrics_collection_interval": 60 },
-    "disk": { "measurement": ["used_percent"], "metrics_collection_interval": 60, "resources": ["/", "/var/lib/docker"] }
-  } },
-  "logs": { "logs_collected": { "files": { "collect_list": [
-    { "file_path": "/opt/opencode/logs/access.log", "log_group_name": "${name_prefix}-caddy", "log_stream_name": "{instance_id}" },
-    { "file_path": "/var/log/secure", "log_group_name": "${name_prefix}-secure", "log_stream_name": "{instance_id}" },
-    { "file_path": "/var/log/cloud-init-output.log", "log_group_name": "${name_prefix}-boot", "log_stream_name": "{instance_id}" },
-    { "file_path": "/var/lib/docker/containers/*/*.log", "log_group_name": "${name_prefix}-containers", "log_stream_name": "{instance_id}" }
-  ] } } }
-CW_EOF
-/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json \
-  || echo "WARNING: cloudwatch agent config failed; continuing without log shipping" >&2
+# Boot order: disk -> docker -> compose -> monitoring (stages below).
+/opt/opencode/host/app.sh boot
+/opt/opencode/host/monitoring.sh
 
 echo 'echo "opencode web ready on https://'"${domain_name}"' (Caddy + compose in /opt/opencode)"' > /etc/profile.d/opencode.sh
