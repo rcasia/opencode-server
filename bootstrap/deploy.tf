@@ -475,6 +475,19 @@ data "aws_iam_policy_document" "deploy_identity" {
       values   = ["vpc-flow-logs.amazonaws.com"]
     }
   }
+
+  # DLM passes its service-linked role at policy creation (issue #46).
+  statement {
+    sid       = "PassDlmRole"
+    actions   = ["iam:PassRole"]
+    resources = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/dlm.amazonaws.com/AWSServiceRoleForSnapshotLifecycleManagement"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["dlm.amazonaws.com"]
+    }
+  }
 }
 
 resource "aws_iam_policy" "deploy_identity" {
