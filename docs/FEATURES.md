@@ -59,20 +59,33 @@ rule 10).
   BASIC_AUTH), `oauth2.env` (GitHub OAuth client/cookie secrets), and
   `opencode.env` (backend password + provider API keys). Each compose
   service mounts only its own file, so provider keys never reach the Caddy
-  or oauth2-proxy containers (ADR-0026).
+  or oauth2-proxy containers (ADR-0028).
 - **Persistent state.** 10 GB encrypted EBS at `/var/lib/docker`:
   sessions, images, workspace, and certs survive replacement.
 - **Agent git identity.** The agent commits/pushes as the operator:
   identity in vars, PAT in SSM, applied by an idempotent boot helper.
   The pinned backend image ships without git, so each backend installs
-  it at container start (before the sandbox applies); without it the
-  boot helper warns and agent git stays unavailable.
+  it at container start (before the sandbox applies); the boot helper
+  waits for it and a git failure only warns — it never fails boot.
 - **Sandboxed backend.** Both backend colors run `opencode web` under
   `nono` (Landlock) with the checked-in `app/nono-profile.json`:
   workspace + port 4096 + provider/GitHub egress allowed; IMDS,
-  credential paths, and `docker.sock` denied. The pinned nono RPM rides
-  the S3 bundle (CI verifies SHA, boot installs from disk). Agent
-  container builds move out of the sandbox. Rationale: ADR-0020, ADR-0025.
+  credential paths, and `docker.sock` denied. The pinned nono musl
+  tarball rides the S3 bundle (CI verifies SHA, boot installs from
+  disk; static binary serves host and container — no distro RPM).
+  Agent container builds move out of the sandbox.
+  Rationale: ADR-0020, ADR-0025, ADR-0027.
+- **Hardened backend containers.** Both backend colors use `cap_drop: [ALL]`
+  + `cap_add: [SYS_PTRACE]` (nono requirement) and `no-new-privileges:true`,
+  matching the posture of caddy and oauth2-proxy in the same stack. `docker.sock`
+  is never mounted; re-adding it requires an explicit ADR (credential-theft
+  path documented in ADR-0026). Rationale: ADR-0026.
+- **Explicit opencode.json permissions.** The managed `app/opencode.json` grants
+  file tools (`read`, `edit`, `glob`, `grep`, `list`) and subagent tools
+  (`task`, `todowrite`) as `allow`; shell (`bash`), network reads (`webfetch`,
+  `websearch`), and cross-repo access (`external_directory`) require operator
+  confirmation (`ask`). Any future tool not listed defaults to `ask` rather
+  than auto-allowing. Rationale: ADR-0026.
 
 ## Watch
 

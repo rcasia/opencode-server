@@ -1,4 +1,4 @@
-# ADR-0026: Per-service env files instead of a shared app.env
+# ADR-0028: Per-service env files instead of a shared app.env
 
 ## Status
 

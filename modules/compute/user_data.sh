@@ -65,19 +65,25 @@ dnf install -y docker-compose-plugin || {
 docker compose version
 
 mkdir -p /opt/opencode/logs /opt/opencode/host
-rm -rf /opt/opencode/compose.yaml /opt/opencode/Caddyfile /opt/opencode/switch.sh /opt/opencode/opencode.json /opt/opencode/nono-profile.json /opt/opencode/nono-version.json /opt/opencode/nono-cli-*.rpm /opt/opencode/host/app.sh /opt/opencode/host/monitoring.sh
-# Pinned nono release (ADR-0025): the RPM bytes ride the S3 bundle, so
-# boot never curls GitHub (ADR-0003). Toolchain per ADR-0024, so the
-# install lives in this bootstrap and bumps replace the host.
-# Bump = reviewed diff of version + SHAs here plus app/nono-version.json
-# (test-boot checks they match).
-NONO_VERSION="0.76.0"
-NONO_ARCH=$(uname -m)
-case "$NONO_ARCH" in
-  x86_64) NONO_RPM="nono-cli-$NONO_VERSION-1.x86_64.rpm"; NONO_SHA256="51ea27fd03cff8e6113deb614cd35a76d2e399d0e1075e061fb12d9c950b02de" ;; # pragma: allowlist secret -- pinned release hash, not a credential
-  aarch64) NONO_RPM="nono-cli-$NONO_VERSION-1.aarch64.rpm"; NONO_SHA256="49ab68c6cfa0b362bf9a480851299b4511a4b2fd20b5fed6c90270e3fc61712a" ;; # pragma: allowlist secret -- pinned release hash, not a credential
-  *) echo "unsupported arch $NONO_ARCH for nono RPM"; exit 1 ;;
-esac
+rm -rf /opt/opencode/compose.yaml /opt/opencode/Caddyfile /opt/opencode/switch.sh /opt/opencode/opencode.json /opt/opencode/nono-profile.json /opt/opencode/nono-version.json /opt/opencode/nono-*.tar.gz /opt/opencode/nono-container /opt/opencode/nono /opt/opencode/host/app.sh /opt/opencode/host/monitoring.sh
+# Pinned nono release (ADR-0025, ADR-0027): the static musl tarball
+# rides the S3 bundle, so boot never curls GitHub (ADR-0003). One
+# binary serves host and container: static-pie runs on AL2023 glibc
+# and Alpine musl alike. No distro RPM: dnf failed to unpack
+# nono-cli-0.76.0-1.x86_64 on prod and poisoned boot before the
+# container binary was even extracted. Toolchain per ADR-0024, so the
+# install lives in this bootstrap and bumps replace the host. Pins
+# always reference upstream release artifacts; extraction is
+# deterministic.
+# Bump = reviewed diff of version + SHA here plus app/nono-version.json
+# (test-boot checks they match). NONO_VERSION stays as the single
+# human-readable pin next to the artifact lines below.
+NONO_VERSION="0.76.0" # pinned nono release (matches app/nono-version.json)
+# NOTE: $NONO_VERSION must stay brace-free on the next line —
+# templatefile treats dollar-brace as interpolation and fails
+# validate on any literal occurrence, even in comments.
+NONO_TAR="nono-v$NONO_VERSION-x86_64-unknown-linux-musl.tar.gz"
+NONO_TAR_SHA256="5a57c4b78c16146dc1dea192bd1b94a1636087ed5221023ecea1808e3967f6be" # pragma: allowlist secret -- pinned release hash, not a credential
 for _ in $(seq 1 60); do
   aws s3 cp "s3://${app_bundle_bucket}/app/compose.yaml" /opt/opencode/compose.yaml --region "${aws_region}" \
     && aws s3 cp "s3://${app_bundle_bucket}/app/Caddyfile" /opt/opencode/Caddyfile --region "${aws_region}" \
@@ -85,7 +91,7 @@ for _ in $(seq 1 60); do
     && aws s3 cp "s3://${app_bundle_bucket}/app/opencode.json" /opt/opencode/opencode.json --region "${aws_region}" \
     && aws s3 cp "s3://${app_bundle_bucket}/app/nono-profile.json" /opt/opencode/nono-profile.json --region "${aws_region}" \
     && aws s3 cp "s3://${app_bundle_bucket}/app/nono-version.json" /opt/opencode/nono-version.json --region "${aws_region}" \
-    && aws s3 cp "s3://${app_bundle_bucket}/app/$NONO_RPM" "/opt/opencode/$NONO_RPM" --region "${aws_region}" \
+    && aws s3 cp "s3://${app_bundle_bucket}/app/$NONO_TAR" "/opt/opencode/$NONO_TAR" --region "${aws_region}" \
     && aws s3 cp "s3://${app_bundle_bucket}/app/host/app.sh" /opt/opencode/host/app.sh --region "${aws_region}" \
     && aws s3 cp "s3://${app_bundle_bucket}/app/host/monitoring.sh" /opt/opencode/host/monitoring.sh --region "${aws_region}" \
     && break
@@ -97,12 +103,14 @@ test -f /opt/opencode/opencode.json || { echo "opencode config never appeared"; 
 test -f /opt/opencode/host/app.sh || { echo "host stages never appeared"; exit 1; }
 test -f /opt/opencode/host/monitoring.sh || { echo "host stages never appeared"; exit 1; }
 test -f /opt/opencode/nono-profile.json || { echo "nono profile never appeared"; exit 1; }
-test -f "/opt/opencode/$NONO_RPM" || { echo "nono RPM never appeared"; exit 1; }
+test -f "/opt/opencode/$NONO_TAR" || { echo "nono musl tarball never appeared"; exit 1; }
 chmod +x /opt/opencode/switch.sh /opt/opencode/host/app.sh /opt/opencode/host/monitoring.sh
-ACTUAL_NONO_SHA256=$(sha256sum "/opt/opencode/$NONO_RPM" | cut -d ' ' -f 1)
-[ "$ACTUAL_NONO_SHA256" = "$NONO_SHA256" ] || { echo "nono RPM checksum mismatch"; exit 1; }
-dnf install -y "/opt/opencode/$NONO_RPM"
-nono --version
+ACTUAL_NONO_TAR_SHA256=$(sha256sum "/opt/opencode/$NONO_TAR" | cut -d ' ' -f 1)
+[ "$ACTUAL_NONO_TAR_SHA256" = "$NONO_TAR_SHA256" ] || { echo "nono musl tarball checksum mismatch"; exit 1; }
+tar -xzf "/opt/opencode/$NONO_TAR" -C /opt/opencode
+mv -f /opt/opencode/nono /opt/opencode/nono-container
+chmod +x /opt/opencode/nono-container
+/opt/opencode/nono-container --version
 
 # Non-secret stage config (SSM parameter NAMES, never values). Written
 # once here; app/monitoring stages source it on every run, including

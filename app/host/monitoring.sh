@@ -62,3 +62,15 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<CW_EOF
 CW_EOF
 /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json \
   || echo "WARNING: cloudwatch agent config failed; continuing without log shipping" >&2
+# A dead agent is otherwise silent (metrics/alarms/log shipping all
+# dark while systemd restart-loops it). Report it loudly at boot so
+# the boot-warnings audit surfaces it; never fail boot over it.
+sleep 10
+if systemctl is-active --quiet amazon-cloudwatch-agent; then
+  echo "cloudwatch agent active"
+else
+  echo "WARNING: cloudwatch agent not active after fetch-config" >&2
+  systemctl status amazon-cloudwatch-agent --no-pager 2>&1 | tail -n 15 >&2 || true
+  tail -n 30 /opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log 2>&1 >&2 || true
+fi
+true
