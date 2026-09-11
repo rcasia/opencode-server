@@ -10,14 +10,8 @@ allowed_ssh_cidr = ""         # SSM-only default. To allow SSH, set your /32 her
 # validation rejects non-CIDR values, so it would fail every plan.
 ssh_public_key   = "" # optional: "ssh-ed25519 AAAA..." (pair with your /32 in allowed_ssh_cidr)
 root_volume_size = 30
-domain_name      = "" # supplied via DOMAIN_NAME Actions secret
-alert_email      = "" # supplied via ALERT_EMAIL Actions secret
-git_user_name    = "" # supplied via GIT_USER_NAME Actions secret
-git_user_email   = "" # supplied via GIT_USER_EMAIL Actions secret
-# SSO human gate (ADR-0014): GitHub OAuth App client ID (public) + the one
-# allowed username. Supplied via Actions secrets and fail closed when empty.
-github_oauth_client_id = ""
-github_oauth_user      = ""
+# Runtime deployment values are supplied by GitHub Actions secrets as TF_VAR_*
+# and must not be defined here, otherwise the -var-file values override them.
 
 # Provider credentials: names only. Values live in SSM SecureStrings and are
 # fetched by the instance at boot with xtrace disabled. Empty = disabled.
