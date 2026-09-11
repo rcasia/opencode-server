@@ -307,6 +307,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "audit" {
     id     = "expire-noncurrent-versions"
     status = "Enabled"
 
+    # Empty filter = whole bucket (provider warns without one).
+    filter {}
+
     noncurrent_version_expiration {
       noncurrent_days = 90
     }
