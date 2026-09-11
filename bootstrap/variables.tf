@@ -16,8 +16,14 @@ variable "environment" {
   default     = "prod"
 }
 
-variable "github_repo" {
-  description = "GitHub repo allowed to assume the deploy role (owner/name)"
+variable "deploy_subject" {
+  description = "Exact OIDC sub allowed to assume the deploy role (EMU immutable form, with numeric IDs)"
   type        = string
-  default     = "rcasia/opencode-server"
+  default     = "repo:rcasia@31012661/opencode-server@1364478756:environment:prod"
+}
+
+variable "deploy_ref" {
+  description = "OIDC ref claim allowed to assume the deploy role"
+  type        = string
+  default     = "refs/heads/main"
 }

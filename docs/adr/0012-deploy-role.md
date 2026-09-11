@@ -91,3 +91,12 @@ and nothing manages itself.
 ## References
 
 - [Configuring OpenID Connect in Amazon IAM (AWS)](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_create_oidc.html)
+
+## Correction (2026-09-11, pre-deploy)
+
+Two lines above went stale within hours and are corrected here, not
+rewritten: trust is NOT the slug pattern — this is an EMU org, so the
+`sub` claim carries numeric IDs and only the exact `StringEquals`
+subject works (`deploy_subject` var; a loose replacement locked the
+pipeline out the same day). Bootstrap is NOT laptop-applied either —
+see ADR-0013, which refines the apply mechanism to the pipeline.

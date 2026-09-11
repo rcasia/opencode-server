@@ -21,6 +21,10 @@ resource "aws_iam_openid_connect_provider" "github" {
 }
 
 data "aws_iam_policy_document" "deploy_assume" {
+  # Immutable EMU subject: GitHub issues the sub claim with numeric
+  # org/repo IDs, NOT the human-readable slug. A slug pattern here
+  # matches nothing and locks the pipeline out (proven 2026-09-11:
+  # a loose replacement broke AssumeRole for every job).
   statement {
     actions = ["sts:AssumeRoleWithWebIdentity"]
 
@@ -30,9 +34,15 @@ data "aws_iam_policy_document" "deploy_assume" {
     }
 
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repo}:*"]
+      values   = [var.deploy_subject]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:ref"
+      values   = [var.deploy_ref]
     }
 
     condition {
@@ -45,6 +55,7 @@ data "aws_iam_policy_document" "deploy_assume" {
 
 resource "aws_iam_role" "deploy" {
   name               = "${var.project}-server-deploy"
+  description        = "GitHub Actions deploys for opencode-server (OIDC)"
   assume_role_policy = data.aws_iam_policy_document.deploy_assume.json
 }
 
