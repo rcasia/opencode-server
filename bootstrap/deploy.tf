@@ -66,6 +66,7 @@ resource "aws_iam_role" "deploy" {
 locals {
   state_bucket_pattern  = "${var.project}-${var.environment}-tfstate-*"
   bundle_bucket_pattern = "${var.project}-${var.environment}-app-bundle-*"
+  audit_bucket_pattern  = "${var.project}-${var.environment}-audit-*"
 }
 
 # EC2 + networking: reads are wildcard by API design; management is an
@@ -123,6 +124,8 @@ data "aws_iam_policy_document" "deploy_compute" {
       "ec2:AuthorizeSecurityGroupEgress",
       "ec2:RevokeSecurityGroupIngress",
       "ec2:RevokeSecurityGroupEgress",
+      "ec2:CreateFlowLogs",
+      "ec2:DeleteFlowLogs",
     ]
     resources = ["*"]
   }
@@ -241,6 +244,44 @@ data "aws_iam_policy_document" "deploy_data" {
     sid       = "S3ListAll"
     actions   = ["s3:ListAllMyBuckets"]
     resources = ["*"]
+  }
+
+  # Audit-trail bucket (modules/monitoring): action set mirrors the
+  # bundle/state bucket statements, including the TLS-policy, logging,
+  # and lifecycle writes the trail bucket resources converge.
+  statement {
+    sid = "AuditBucket"
+    actions = [
+      "s3:CreateBucket",
+      "s3:DeleteBucket",
+      "s3:ListBucket",
+      "s3:ListBucketVersions",
+      "s3:GetBucketLocation",
+      "s3:GetBucketPolicy",
+      "s3:PutBucketPolicy",
+      "s3:DeleteBucketPolicy",
+      "s3:GetBucketCORS",
+      "s3:GetBucketWebsite",
+      "s3:GetBucketLogging",
+      "s3:PutBucketLogging",
+      "s3:GetLifecycleConfiguration",
+      "s3:PutLifecycleConfiguration",
+      "s3:GetBucketNotification",
+      "s3:GetReplicationConfiguration",
+      "s3:GetBucketRequestPayment",
+      "s3:GetBucketObjectLockConfiguration",
+      "s3:GetAccelerateConfiguration",
+      "s3:GetBucketAcl",
+      "s3:GetBucketVersioning",
+      "s3:PutBucketVersioning",
+      "s3:GetEncryptionConfiguration",
+      "s3:PutEncryptionConfiguration",
+      "s3:GetBucketPublicAccessBlock",
+      "s3:PutBucketPublicAccessBlock",
+      "s3:GetBucketTagging",
+      "s3:PutBucketTagging",
+    ]
+    resources = ["arn:aws:s3:::${local.audit_bucket_pattern}"]
   }
 }
 
@@ -362,6 +403,42 @@ data "aws_iam_policy_document" "deploy_identity" {
     actions   = ["sts:GetCallerIdentity"]
     resources = ["*"]
   }
+
+  # Flow-logs delivery role (modules/network): same management shape as
+  # the server role, scoped to the flow-logs name, plus PassRole to the
+  # flow-logs service so aws_flow_log converges.
+  statement {
+    sid = "FlowLogsRole"
+    actions = [
+      "iam:CreateRole",
+      "iam:GetRole",
+      "iam:DeleteRole",
+      "iam:UpdateRole",
+      "iam:UpdateAssumeRolePolicy",
+      "iam:PutRolePolicy",
+      "iam:GetRolePolicy",
+      "iam:DeleteRolePolicy",
+      "iam:ListRolePolicies",
+      "iam:AttachRolePolicy",
+      "iam:DetachRolePolicy",
+      "iam:ListAttachedRolePolicies",
+      "iam:TagRole",
+      "iam:UntagRole",
+    ]
+    resources = ["arn:aws:iam::*:role/${var.project}-*-flow-logs"]
+  }
+
+  statement {
+    sid       = "PassFlowLogsRole"
+    actions   = ["iam:PassRole"]
+    resources = ["arn:aws:iam::*:role/${var.project}-*-flow-logs"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["vpc-flow-logs.amazonaws.com"]
+    }
+  }
 }
 
 resource "aws_iam_policy" "deploy_identity" {
@@ -448,6 +525,25 @@ data "aws_iam_policy_document" "deploy_observe" {
       "ssm:ListCommandInvocations",
     ]
     resources = ["*"]
+  }
+
+  # Account audit trail (modules/monitoring): explicit action list on the
+  # project trail ARN (no service-wide wildcard).
+  statement {
+    sid = "Trail"
+    actions = [
+      "cloudtrail:CreateTrail",
+      "cloudtrail:DeleteTrail",
+      "cloudtrail:UpdateTrail",
+      "cloudtrail:GetTrail",
+      "cloudtrail:GetTrailStatus",
+      "cloudtrail:StartLogging",
+      "cloudtrail:StopLogging",
+      "cloudtrail:DescribeTrails",
+      "cloudtrail:TagResource",
+      "cloudtrail:UntagResource",
+    ]
+    resources = ["arn:aws:cloudtrail:${var.aws_region}:*:trail/${var.project}-*"]
   }
 }
 

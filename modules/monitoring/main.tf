@@ -220,3 +220,125 @@ resource "aws_cloudwatch_metric_alarm" "site_down" {
     HealthCheckId = aws_route53_health_check.site[0].id
   }
 }
+
+# Audit trail (single-region, management events): who-called-what for the
+# account in this region, delivered to a dedicated bucket. Log-file
+# validation on; single region keeps it at cents per month.
+data "aws_caller_identity" "current" {}
+
+resource "aws_s3_bucket" "audit" {
+  bucket = "${var.name_prefix}-audit-${data.aws_caller_identity.current.account_id}"
+
+  tags = { Name = "${var.name_prefix}-audit" }
+}
+
+resource "aws_s3_bucket_versioning" "audit" {
+  bucket = aws_s3_bucket.audit.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "audit" {
+  bucket = aws_s3_bucket.audit.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "audit" {
+  bucket                  = aws_s3_bucket.audit.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "audit" {
+  bucket = aws_s3_bucket.audit.id
+
+  rule {
+    id     = "expire-noncurrent-versions"
+    status = "Enabled"
+
+    noncurrent_version_expiration {
+      noncurrent_days = 90
+    }
+  }
+}
+
+# One policy: TLS-only deny plus the CloudTrail delivery grants
+# (GetBucketAcl check + PutObject under trail/). No unencrypted-put deny
+# on purpose: the CloudTrail writer does not send the SSE header, so
+# StringNotEquals would deny delivery; the bucket default (AES256)
+# already encrypts everything at rest.
+data "aws_iam_policy_document" "audit" {
+  statement {
+    sid       = "DenyPlaintextTransport"
+    effect    = "Deny"
+    actions   = ["s3:*"]
+    resources = [aws_s3_bucket.audit.arn, "${aws_s3_bucket.audit.arn}/*"]
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+
+  statement {
+    sid       = "CloudTrailAclCheck"
+    actions   = ["s3:GetBucketAcl"]
+    resources = [aws_s3_bucket.audit.arn]
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudtrail.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid       = "CloudTrailWrite"
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.audit.arn}/trail/*"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudtrail.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "s3:x-amz-acl"
+      values   = ["bucket-owner-full-control"]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "audit" {
+  bucket = aws_s3_bucket.audit.id
+  policy = data.aws_iam_policy_document.audit.json
+}
+
+resource "aws_cloudtrail" "account" {
+  name                          = "${var.name_prefix}-trail"
+  s3_bucket_name                = aws_s3_bucket.audit.id
+  s3_key_prefix                 = "trail"
+  include_global_service_events = true
+  is_multi_region_trail         = false
+  enable_log_file_validation    = true
+
+  tags = { Name = "${var.name_prefix}-trail" }
+
+  depends_on = [aws_s3_bucket_policy.audit]
+}
+}
