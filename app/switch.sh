@@ -299,6 +299,12 @@ recover_color() {
 
 cmd_reconcile() {
   [ -f compose.yaml ] || exit 0
+  # Mutex (issue #48): a deploy colliding with reconcile (or two
+  # deploys, e.g. a blind CI rerun) would both flip .live-color and
+  # stop each other's color. Non-blocking: fail loud instead of
+  # queueing behind an unknown run.
+  exec 9>"$COMPOSE_DIR/.switch.lock"
+  flock -n 9 || fail "another switch/reconcile is running (.switch.lock held)"
   LIVE="$(live_color)"
   if [ ! -f "$LIVE_FILE" ]; then
     echo "$LIVE" >"$LIVE_FILE"
@@ -319,6 +325,10 @@ cmd_deploy() {
   [ -f compose.yaml ] && [ -f Caddyfile ] && [ -f caddy.env ] && [ -f oauth2.env ] && [ -f opencode.env ] \
     || fail "run from a compose dir (compose.yaml, Caddyfile, caddy.env, oauth2.env, opencode.env)"
   command -v curl >/dev/null || fail "curl is required for the edge check"
+  # Mutex (issue #48): see cmd_reconcile. A timed-out CI poll must not
+  # be answered with a rerun while the first deploy is still running.
+  exec 9>"$COMPOSE_DIR/.switch.lock"
+  flock -n 9 || fail "another switch is running (.switch.lock held)"
   DOMAIN="$(sed -n 's/^DOMAIN=//p' caddy.env | head -n 1)"
   [ -n "$DOMAIN" ] || fail "DOMAIN missing from caddy.env"
   DEPLOY_START="$(date +%s)"

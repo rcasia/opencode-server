@@ -34,7 +34,7 @@ teardown() {
   [ "$_rc" -ne 0 ] && dump_backend_state
   kill "$SAMPLER_PID" 2>/dev/null || true
   docker compose down -v >/dev/null 2>&1
-  rm -f caddy.env oauth2.env opencode.env .live-color compose.override.yaml "$SAMPLER_LOG"
+  rm -f caddy.env oauth2.env opencode.env .live-color .switch.lock compose.override.yaml "$SAMPLER_LOG"
 }
 trap 'teardown' EXIT
 # Dump backend state before the EXIT trap tears the stack down: a
