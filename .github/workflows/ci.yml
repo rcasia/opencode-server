@@ -148,6 +148,21 @@ jobs:
           terraform plan -target=module.compute -var-file=environments/local.tfvars -input=false -detailed-exitcode || exitcode=$?
           if [ "${exitcode:-0}" != "0" ]; then echo "non-idempotent plan on existing state"; exit 1; fi
 
+  app-test:
+    needs: [changes]
+    if: always() && (needs.changes.result != 'success' || needs.changes.outputs.app == 'true' || needs.changes.outputs.pipeline == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Full-chain app boot test (dummy env, opencode.json validation)
+        run: make test-boot
+
   bootstrap:
     needs: [pre-commit, terraform, local, changes]
     if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.changes.result != 'success' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.pipeline == 'true') && needs.pre-commit.result == 'success' && (needs.terraform.result == 'success' || needs.terraform.result == 'skipped') && (needs.local.result == 'success' || needs.local.result == 'skipped')
