@@ -280,6 +280,13 @@ jobs:
             echo "${SHA}  /tmp/${RPM}" | sha256sum -c -
             aws s3 cp "/tmp/${RPM}" "s3://$BUCKET/app/${RPM}" --sse AES256 --region "${{ env.AWS_REGION }}"
           done
+          # Musl tarball: container binary source for the Alpine
+          # backends (glibc builds cannot exec on musl).
+          MUSL_TAR="$(jq -r .artifacts.tar_musl_x86_64.file app/nono-version.json)"
+          MUSL_SHA="$(jq -r .artifacts.tar_musl_x86_64.sha256 app/nono-version.json)"
+          curl -fsSL "https://github.com/nolabs-ai/nono/releases/download/v${NONO_VERSION}/${MUSL_TAR}" -o "/tmp/${MUSL_TAR}"
+          echo "${MUSL_SHA}  /tmp/${MUSL_TAR}" | sha256sum -c -
+          aws s3 cp "/tmp/${MUSL_TAR}" "s3://$BUCKET/app/${MUSL_TAR}" --sse AES256 --region "${{ env.AWS_REGION }}"
       - name: Terraform validate
         run: terraform validate
       - name: Terraform plan
@@ -324,22 +331,40 @@ jobs:
             echo "${SHA}  /tmp/${RPM}" | sha256sum -c -
             aws s3 cp "/tmp/${RPM}" "s3://$BUCKET/app/${RPM}" --sse AES256 --region "${{ env.AWS_REGION }}"
           done
-      - name: Smoke test (site answers through TLS + SSO gate)
+          # Musl tarball: container binary source for the Alpine
+          # backends (glibc builds cannot exec on musl).
+          MUSL_TAR="$(jq -r .artifacts.tar_musl_x86_64.file app/nono-version.json)"
+          MUSL_SHA="$(jq -r .artifacts.tar_musl_x86_64.sha256 app/nono-version.json)"
+          curl -fsSL "https://github.com/nolabs-ai/nono/releases/download/v${NONO_VERSION}/${MUSL_TAR}" -o "/tmp/${MUSL_TAR}"
+          echo "${MUSL_SHA}  /tmp/${MUSL_TAR}" | sha256sum -c -
+          aws s3 cp "/tmp/${MUSL_TAR}" "s3://$BUCKET/app/${MUSL_TAR}" --sse AES256 --region "${{ env.AWS_REGION }}"
+      - name: Smoke test (site answers through TLS + SSO gate + /ready)
         if: steps.plan.outputs.exitcode == '2'
         run: |
           terraform output
           aws ec2 wait instance-running --instance-ids "$(terraform output -raw instance_id)" --region "${{ env.AWS_REGION }}"
           URL="$(terraform output -raw opencode_url)"
           case "$URL" in https://*) ;; *) echo "no public URL ($URL), skipping HTTP check"; exit 0;; esac
+          GATE=""
           for _ in $(seq 1 30); do
             RESP="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 10 "$URL" || true)"
             case "$RESP" in
-              302*oauth2*) echo "site up: SSO gate at $URL ($RESP)"; exit 0;;
-              401*) echo "site up: legacy 401 auth gate at $URL"; exit 0;;
+              302*oauth2*) echo "site up: SSO gate at $URL ($RESP)"; GATE=yes; break;;
+              401*) echo "site up: legacy 401 auth gate at $URL"; GATE=yes; break;;
             esac
             sleep 20
           done
-          echo "site never returned the SSO gate (last: $RESP)"; exit 1
+          [ -n "$GATE" ] || { echo "site never returned the SSO gate (last: $RESP)"; exit 1; }
+          # /ready proves a backend color actually serves behind the
+          # edge. The `/` gate above is answered by Caddy+oauth2-proxy
+          # alone and once shipped a green build with no serving
+          # backend (issue #30 entrypoint incident).
+          for _ in $(seq 1 30); do
+            READY="$(curl -s --max-time 10 "$URL/ready" || true)"
+            [ "$READY" = "ready" ] && { echo "readiness gate answers 'ready'"; exit 0; }
+            sleep 20
+          done
+          echo "edge up but /ready never answered 'ready' (last: $READY)"; exit 1
       - name: Boot warnings audit (fresh boot only, informational)
         if: steps.plan.outputs.exitcode == '2'
         run: |
