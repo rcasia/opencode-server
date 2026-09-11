@@ -503,6 +503,15 @@ data "aws_iam_policy_document" "deploy_observe" {
   }
 
   statement {
+    sid = "Budget"
+    actions = [
+      "budgets:ViewBudget",
+      "budgets:ModifyBudget",
+    ]
+    resources = ["arn:aws:budgets::*:budget/${var.project}-*"]
+  }
+
+  statement {
     sid = "HealthChecks"
     actions = [
       "route53:CreateHealthCheck",

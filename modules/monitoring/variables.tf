@@ -32,3 +32,14 @@ variable "mem_threshold_percent" {
   type        = number
   default     = 90
 }
+
+variable "monthly_budget_limit_usd" {
+  description = "Monthly AWS cost budget in USD that pages the operator on actual or forecasted breach."
+  type        = string
+  default     = "25"
+
+  validation {
+    condition     = can(tonumber(var.monthly_budget_limit_usd)) && tonumber(var.monthly_budget_limit_usd) > 0
+    error_message = "monthly_budget_limit_usd must be a positive number, e.g. \"25\"."
+  }
+}

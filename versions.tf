@@ -40,6 +40,7 @@ provider "aws" {
       sns        = endpoints.value
       route53    = endpoints.value
       ssm        = endpoints.value
+      budgets    = endpoints.value
     }
   }
 

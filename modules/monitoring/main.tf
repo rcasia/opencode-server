@@ -381,3 +381,33 @@ resource "aws_cloudtrail" "account" {
 
   depends_on = [aws_s3_bucket_policy.audit]
 }
+
+# Cost guardrail (issue #21): "cheap by design" as an alarm, not a claim.
+# A monthly cost budget pages the same SNS topic as the intrusion alarms
+# on actual breach (>=100% spent) and on forecasted breach (>=100%
+# projected). The Budgets API is free; no Cost Explorer dependency.
+# Moto note: the local job plans the whole stack but applies only
+# module.compute, so this resource stays plan-only against the mock.
+resource "aws_budgets_budget" "monthly" {
+  name         = "${var.name_prefix}-monthly"
+  budget_type  = "COST"
+  limit_amount = var.monthly_budget_limit_usd
+  limit_unit   = "USD"
+  time_unit    = "MONTHLY"
+
+  notification {
+    comparison_operator       = "GREATER_THAN"
+    threshold                 = 100
+    threshold_type            = "PERCENTAGE"
+    notification_type         = "ACTUAL"
+    subscriber_sns_topic_arns = [aws_sns_topic.alerts.arn]
+  }
+
+  notification {
+    comparison_operator       = "GREATER_THAN"
+    threshold                 = 100
+    threshold_type            = "PERCENTAGE"
+    notification_type         = "FORECASTED"
+    subscriber_sns_topic_arns = [aws_sns_topic.alerts.arn]
+  }
+}
