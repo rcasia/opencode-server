@@ -64,9 +64,11 @@ rule 10).
 - **Sandboxed backend.** Both backend colors run `opencode web` under
   `nono` (Landlock) with the checked-in `app/nono-profile.json`:
   workspace + port 4096 + provider/GitHub egress allowed; IMDS,
-  credential paths, and `docker.sock` denied. The pinned nono RPM rides
-  the S3 bundle (CI verifies SHA, boot installs from disk). Agent
-  container builds move out of the sandbox. Rationale: ADR-0020, ADR-0025.
+  credential paths, and `docker.sock` denied. The pinned nono musl
+  tarball rides the S3 bundle (CI verifies SHA, boot installs from
+  disk; static binary serves host and container — no distro RPM).
+  Agent container builds move out of the sandbox.
+  Rationale: ADR-0020, ADR-0025, ADR-0027.
 
 ## Watch
 

@@ -276,18 +276,10 @@ jobs:
           aws s3 cp app/nono-version.json "s3://$BUCKET/app/nono-version.json" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/host/app.sh "s3://$BUCKET/app/host/app.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/host/monitoring.sh "s3://$BUCKET/app/host/monitoring.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
-          # Pinned nono RPMs (ADR-0025): CI fetches + verifies, boot
-          # installs from disk — never curl-at-boot (ADR-0003).
+          # Pinned nono musl tarball (static-pie: host and
+          # container binary source). SHA-verified; boot installs
+          # from disk, never curl-at-boot (ADR-0003, ADR-0027).
           NONO_VERSION="$(jq -r .version app/nono-version.json)"
-          for ARCH in x86_64 aarch64; do
-            RPM="$(jq -r ".artifacts.rpm_${ARCH}.file" app/nono-version.json)"
-            SHA="$(jq -r ".artifacts.rpm_${ARCH}.sha256" app/nono-version.json)"
-            curl -fsSL "https://github.com/nolabs-ai/nono/releases/download/v${NONO_VERSION}/${RPM}" -o "/tmp/${RPM}"
-            echo "${SHA}  /tmp/${RPM}" | sha256sum -c -
-            aws s3 cp "/tmp/${RPM}" "s3://$BUCKET/app/${RPM}" --sse AES256 --region "${{ env.AWS_REGION }}"
-          done
-          # Musl tarball: container binary source for the Alpine
-          # backends (glibc builds cannot exec on musl).
           MUSL_TAR="$(jq -r .artifacts.tar_musl_x86_64.file app/nono-version.json)"
           MUSL_SHA="$(jq -r .artifacts.tar_musl_x86_64.sha256 app/nono-version.json)"
           curl -fsSL "https://github.com/nolabs-ai/nono/releases/download/v${NONO_VERSION}/${MUSL_TAR}" -o "/tmp/${MUSL_TAR}"
@@ -329,21 +321,43 @@ jobs:
           aws s3 cp app/nono-version.json "s3://$BUCKET/app/nono-version.json" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/host/app.sh "s3://$BUCKET/app/host/app.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/host/monitoring.sh "s3://$BUCKET/app/host/monitoring.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
+          # Pinned nono musl tarball (static-pie: host and
+          # container binary source). SHA-verified; boot installs
+          # from disk, never curl-at-boot (ADR-0003, ADR-0027).
           NONO_VERSION="$(jq -r .version app/nono-version.json)"
-          for ARCH in x86_64 aarch64; do
-            RPM="$(jq -r ".artifacts.rpm_${ARCH}.file" app/nono-version.json)"
-            SHA="$(jq -r ".artifacts.rpm_${ARCH}.sha256" app/nono-version.json)"
-            curl -fsSL "https://github.com/nolabs-ai/nono/releases/download/v${NONO_VERSION}/${RPM}" -o "/tmp/${RPM}"
-            echo "${SHA}  /tmp/${RPM}" | sha256sum -c -
-            aws s3 cp "/tmp/${RPM}" "s3://$BUCKET/app/${RPM}" --sse AES256 --region "${{ env.AWS_REGION }}"
-          done
-          # Musl tarball: container binary source for the Alpine
-          # backends (glibc builds cannot exec on musl).
           MUSL_TAR="$(jq -r .artifacts.tar_musl_x86_64.file app/nono-version.json)"
           MUSL_SHA="$(jq -r .artifacts.tar_musl_x86_64.sha256 app/nono-version.json)"
           curl -fsSL "https://github.com/nolabs-ai/nono/releases/download/v${NONO_VERSION}/${MUSL_TAR}" -o "/tmp/${MUSL_TAR}"
           echo "${MUSL_SHA}  /tmp/${MUSL_TAR}" | sha256sum -c -
           aws s3 cp "/tmp/${MUSL_TAR}" "s3://$BUCKET/app/${MUSL_TAR}" --sse AES256 --region "${{ env.AWS_REGION }}"
+      - name: Boot gate (cloud-init success signal, before smoke)
+        if: steps.plan.outputs.exitcode == '2'
+        run: |
+          IID="$(terraform output -raw instance_id)"
+          aws ec2 wait instance-running --instance-ids "$IID" --region "${{ env.AWS_REGION }}"
+          # Wait for the SSM agent to come online (instance-running
+          # only means the hypervisor started; SSM/cloud-init lag it).
+          for _ in $(seq 1 30); do
+            aws ssm describe-instance-information --filters "Key=InstanceIds,Values=$IID" --query "InstanceInformationList[0].PingStatus" --output text --region "${{ env.AWS_REGION }}" 2>/dev/null | grep -q Online && break
+            sleep 10
+          done
+          # Block until cloud-init finishes, then fail on its signal:
+          # `cloud-init status --wait` exits non-zero when any boot
+          # module (including user_data scripts-user) errored. The old
+          # order ran smoke first, so a poisoned boot still reported
+          # green whenever the edge alone answered `/`.
+          CMD_ID="$(aws ssm send-command --instance-ids "$IID" --document-name "AWS-RunShellScript" --timeout-seconds 600 --parameters 'commands=["cloud-init status --wait --long"]' --query "Command.CommandId" --output text)"
+          for _ in $(seq 1 130); do
+            STATUS="$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query Status --output text 2>/dev/null || echo Pending)"
+            echo "ssm status: $STATUS"
+            [ "$STATUS" = "Success" ] && break
+            case "$STATUS" in Failed|Cancelled|TimedOut) break;; esac
+            sleep 5
+          done
+          echo "--- cloud-init status --wait --long ---"
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query StandardOutputContent --output text 2>/dev/null || echo "(no output)"
+          [ "$STATUS" = "Success" ] || { echo "boot gate failed: cloud-init reported errors (ssm: $STATUS)"; exit 1; }
+          echo "boot gate passed: cloud-init clean"
       - name: Smoke test (site answers through TLS + SSO gate + /ready)
         if: steps.plan.outputs.exitcode == '2'
         run: |

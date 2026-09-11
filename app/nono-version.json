@@ -3,18 +3,10 @@
   "released": "2026-09-09",
   "cooldown_exception": "Same-week exception per ADR-0003 precedent (explicit audit in ADR-0025). Cooldown clock started 2026-09-09; prefer versions older than 21 days for routine bumps.",
   "artifacts": {
-    "rpm_x86_64": {
-      "file": "nono-cli-0.76.0-1.x86_64.rpm",
-      "sha256": "51ea27fd03cff8e6113deb614cd35a76d2e399d0e1075e061fb12d9c950b02de"
-    },
-    "rpm_aarch64": {
-      "file": "nono-cli-0.76.0-1.aarch64.rpm",
-      "sha256": "49ab68c6cfa0b362bf9a480851299b4511a4b2fd20b5fed6c90270e3fc61712a"
-    },
     "tar_musl_x86_64": {
       "file": "nono-v0.76.0-x86_64-unknown-linux-musl.tar.gz",
       "sha256": "5a57c4b78c16146dc1dea192bd1b94a1636087ed5221023ecea1808e3967f6be",
-      "note": "Container binary source (static-pie: runs on musl and glibc). The glibc builds fail inside the Alpine backend image (missing ELF interpreter; gcompat lacks __res_init). x86_64 only — no aarch64-musl asset upstream; ARM test-boot runs the stack emulated (DOCKER_DEFAULT_PLATFORM=linux/amd64)."
+      "note": "Single binary source for host and container (static-pie: runs on AL2023 glibc and Alpine musl). The distro RPM path was removed after dnf failed to unpack nono-cli-0.76.0-1.x86_64 on prod (ADR-0027) — one fewer package-manager failure mode, same pinning guarantees. x86_64 only — no aarch64-musl asset upstream."
     }
   }
 }

@@ -39,21 +39,17 @@ echo "==> Validating nono pilot pins (ADR-0025)"
 jq empty nono-profile.json
 jq empty nono-version.json
 MANIFEST_VERSION="$(jq -r .version nono-version.json)"
-USER_DATA_PIN="$(grep -m1 '^NONO_VERSION=' ../modules/compute/user_data.sh | cut -d'"' -f2)"
-[ -n "$USER_DATA_PIN" ] && [ "$USER_DATA_PIN" = "$MANIFEST_VERSION" ] \
-  || { echo "FAIL: user_data NONO_VERSION ($USER_DATA_PIN) != manifest ($MANIFEST_VERSION)"; exit 1; }
-for _arch in x86_64 aarch64; do
-  MANIFEST_SHA="$(jq -r ".artifacts.rpm_${_arch}.sha256" nono-version.json)"
-  USER_DATA_SHA="$(grep "${_arch}) NONO_RPM=" ../modules/compute/user_data.sh | sed 's/.*NONO_SHA256="\([0-9a-f]*\)".*/\1/')"
-  [ -n "$USER_DATA_SHA" ] && [ "$USER_DATA_SHA" = "$MANIFEST_SHA" ] \
-    || { echo "FAIL: user_data nono SHA for $_arch ($USER_DATA_SHA) != manifest ($MANIFEST_SHA)"; exit 1; }
-done
-MANIFEST_TAR="$(jq -r .artifacts.tar_musl_x86_64.file nono-version.json)"
-MANIFEST_TAR_SHA="$(jq -r .artifacts.tar_musl_x86_64.sha256 nono-version.json)"
 USER_DATA_TAR="$(grep -m1 '^NONO_TAR=' ../modules/compute/user_data.sh | cut -d'"' -f2)"
-USER_DATA_TAR_SHA="$(grep -m1 '^NONO_TAR_SHA256=' ../modules/compute/user_data.sh | cut -d'"' -f2)"
-[ -n "$USER_DATA_TAR" ] && [ "$USER_DATA_TAR" = "$MANIFEST_TAR" ] && [ "$USER_DATA_TAR_SHA" = "$MANIFEST_TAR_SHA" ] \
-  || { echo "FAIL: user_data musl tarball pins ($USER_DATA_TAR) != manifest ($MANIFEST_TAR)"; exit 1; }
+[ -n "$USER_DATA_TAR" ] || { echo "FAIL: user_data sets no NONO_TAR pin"; exit 1; }
+for _field in file sha256; do
+  MANIFEST_VAL="$(jq -r ".artifacts.tar_musl_x86_64.$_field" nono-version.json)"
+  case "$_field" in
+    file) USER_DATA_VAL="$USER_DATA_TAR" ;;
+    sha256) USER_DATA_VAL="$(grep -m1 '^NONO_TAR_SHA256=' ../modules/compute/user_data.sh | cut -d'"' -f2)" ;;
+  esac
+  [ -n "$USER_DATA_VAL" ] && [ "$USER_DATA_VAL" = "$MANIFEST_VAL" ] \
+    || { echo "FAIL: user_data musl tarball $_field ($USER_DATA_VAL) != manifest ($MANIFEST_VAL)"; exit 1; }
+done
 if command -v nono >/dev/null 2>&1; then
   nono profile validate ./nono-profile.json
   echo "PASS: nono-profile.json validates against the installed nono schema"
