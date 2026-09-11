@@ -99,6 +99,12 @@ variable "oauth_cookie_secret_parameter" {
   default     = "/opencode/oauth-cookie-secret"
 }
 
+variable "provider_api_key_parameters" {
+  description = "Map of OpenCode env var names to SSM SecureString parameter names. Empty values disable that provider."
+  type        = map(string)
+  default     = {}
+}
+
 variable "alert_email" {
   description = "Email for intrusion alarms. Empty disables the email subscription."
   type        = string
@@ -131,9 +137,8 @@ variable "github_token_parameter" {
 
 variable "domain_name" {
   description = "Public domain for opencode web (Caddy automatic TLS). Empty skips Caddy config."
-
-  type    = string
-  default = ""
+  type        = string
+  default     = ""
 
   validation {
     condition     = var.domain_name == "" || can(regex("^[a-z0-9.-]+$", var.domain_name))
