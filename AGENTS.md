@@ -20,11 +20,11 @@ subnet (no NAT), Elastic IP, SSM access, optional SSH key.
   deployed_version (commit SHA stamped on instance + data disk as `DeployedRef`)
 - `modules/monitoring` — SNS topic + optional email subscription, CW log groups
   (caddy, secure, boot, containers), metric filters (Caddy 401s, sshd
-  failures) + alarms, Route53 HTTPS probe on `/ping` + site-down alarm
-  (see ADR-0006, ADR-0009)
+  failures) + alarms, Route53 HTTPS probe on `/ready` + site-down alarm
+  (see ADR-0006, ADR-0009, ADR-0015)
 - `app/` — prod compose stack (`compose.yaml` with pinned Caddy + opencode
-  images, `Caddyfile`, `app.env.example`); local full-chain test via
-  `make test-boot` (see ADR-0007)
+  images, `Caddyfile`, blue-green `switch.sh`, `app.env.example`); local
+  full-chain test via `make test-boot` (see ADR-0007, ADR-0015)
 - `docs/adr/` — architecture decision records (index + template); add one per
   significant infra/security choice, never rewrite an accepted record
 - `docs/FEATURES.md` — intended-feature contract; update it on every
@@ -47,7 +47,7 @@ subnet (no NAT), Elastic IP, SSM access, optional SSH key.
   `pre-commit` (always), `terraform` + `local` (infra/pipeline changes only),
   plus `deploy-prod` (main pushes only: bundle upload + OIDC plan/apply/smoke,
   needs the checks green-or-skipped) and `deploy-app` (app-file changes only:
-  SSM rolling restart, no replacement; PR runs skip both). Gates fail open.
+  SSM blue-green switch via `switch.sh`, no replacement; PR runs skip both). Gates fail open.
 
 ## Required skills
 

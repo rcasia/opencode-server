@@ -37,10 +37,15 @@ IID=$(aws ec2 describe-instances --region eu-west-1 \
   --query 'Reservations[0].Instances[0].InstanceId' --output text)
 
 # 3. swap the password line AND the derived BASIC_AUTH (Caddy injects it
-#    after SSO — stale BASIC_AUTH breaks every login with a backend 401)
+#    after SSO — stale BASIC_AUTH breaks every login with a backend 401),
+#    then recreate the live backend (new password) + Caddy (new BASIC_AUTH).
+#    Compose ignores env_file content changes, so bare `up -d` would be a
+#    no-op — and with blue-green it would also start the idle color.
+#    LIVE names the serving color (blue/green, ADR-0015). Seconds of blip
+#    on the edge while Caddy recreates — expected for rotation.
 aws ssm send-command --region eu-west-1 --instance-ids "$IID" \
   --document-name AWS-RunShellScript \
-  --parameters 'commands=["set -euo pipefail", "VALUE=$(aws ssm get-parameter --name /opencode/server-password --with-decryption --query Parameter.Value --output text --region eu-west-1)", "sed -i '\''/^OPENCODE_SERVER_PASSWORD=/d; /^BASIC_AUTH=/d'\'' /opt/opencode/app.env", "printf '\''OPENCODE_SERVER_PASSWORD=%s\\n'\'' \"$VALUE\" >> /opt/opencode/app.env", "BASIC=$(printf '\''opencode:%s'\'' \"$VALUE\" | base64 | tr -d '\''\\n'\'')", "printf '\''BASIC_AUTH=%s\\n'\'' \"$BASIC\" >> /opt/opencode/app.env", "chmod 600 /opt/opencode/app.env", "cd /opt/opencode && docker compose up -d"]' \
+  --parameters 'commands=["set -euo pipefail", "VALUE=$(aws ssm get-parameter --name /opencode/server-password --with-decryption --query Parameter.Value --output text --region eu-west-1)", "sed -i '\''/^OPENCODE_SERVER_PASSWORD=/d; /^BASIC_AUTH=/d'\'' /opt/opencode/app.env", "printf '\''OPENCODE_SERVER_PASSWORD=%s\\n'\'' \"$VALUE\" >> /opt/opencode/app.env", "BASIC=$(printf '\''opencode:%s'\'' \"$VALUE\" | base64 | tr -d '\''\\n'\'')", "printf '\''BASIC_AUTH=%s\\n'\'' \"$BASIC\" >> /opt/opencode/app.env", "chmod 600 /opt/opencode/app.env", "LIVE=$(cat /opt/opencode/.live-color)", "cd /opt/opencode && docker compose up -d --force-recreate --no-deps opencode-$LIVE caddy"]' \
   --query 'Command.CommandId' --output text
 ```
 
@@ -81,10 +86,13 @@ openssl rand -base64 32 | tr -- '+/' '-_' | tr -d '\n' | \
   xargs -I{} aws ssm put-parameter --region eu-west-1 \
     --name /opencode/oauth-cookie-secret --type SecureString --value '{}' --overwrite
 
-# Pick up on the box (same $IID lookup as §1; prints nothing secret):
+# Pick up on the box (same $IID lookup as §1; prints nothing secret).
+# oauth2-proxy alone needs the new env, so recreate only it (its own
+# seconds-long SSO blip, ADR-0015) — bare `up -d` would neither recreate
+# it nor leave the idle color stopped.
 aws ssm send-command --region eu-west-1 --instance-ids "$IID" \
   --document-name AWS-RunShellScript \
-  --parameters 'commands=["set -euo pipefail", "S=$(aws ssm get-parameter --name /opencode/github-oauth-secret --with-decryption --query Parameter.Value --output text --region eu-west-1)", "sed -i '\''/^OAUTH2_PROXY_CLIENT_SECRET=/d'\'' /opt/opencode/app.env", "printf '\''OAUTH2_PROXY_CLIENT_SECRET=%s\\n'\'' \"$S\" >> /opt/opencode/app.env", "C=$(aws ssm get-parameter --name /opencode/oauth-cookie-secret --with-decryption --query Parameter.Value --output text --region eu-west-1)", "sed -i '\''/^OAUTH2_PROXY_COOKIE_SECRET=/d'\'' /opt/opencode/app.env", "printf '\''OAUTH2_PROXY_COOKIE_SECRET=%s\\n'\'' \"$C\" >> /opt/opencode/app.env", "chmod 600 /opt/opencode/app.env", "cd /opt/opencode && docker compose up -d"]' \
+  --parameters 'commands=["set -euo pipefail", "S=$(aws ssm get-parameter --name /opencode/github-oauth-secret --with-decryption --query Parameter.Value --output text --region eu-west-1)", "sed -i '\''/^OAUTH2_PROXY_CLIENT_SECRET=/d'\'' /opt/opencode/app.env", "printf '\''OAUTH2_PROXY_CLIENT_SECRET=%s\\n'\'' \"$S\" >> /opt/opencode/app.env", "C=$(aws ssm get-parameter --name /opencode/oauth-cookie-secret --with-decryption --query Parameter.Value --output text --region eu-west-1)", "sed -i '\''/^OAUTH2_PROXY_COOKIE_SECRET=/d'\'' /opt/opencode/app.env", "printf '\''OAUTH2_PROXY_COOKIE_SECRET=%s\\n'\'' \"$C\" >> /opt/opencode/app.env", "chmod 600 /opt/opencode/app.env", "cd /opt/opencode && docker compose up -d --force-recreate --no-deps oauth2-proxy"]' \
   --query 'Command.CommandId' --output text
 ```
 
@@ -136,7 +144,7 @@ Caddy renews automatically; there is nothing scheduled. To force renewal
 ```bash
 aws ssm send-command --region eu-west-1 --instance-ids "$IID" \
   --document-name AWS-RunShellScript \
-  --parameters 'commands=["cd /opt/opencode && docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile"]'
+  --parameters 'commands=["cd /opt/opencode && docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile"]'
 ```
 
 If the stored cert itself is suspect, stop the stack, clear the

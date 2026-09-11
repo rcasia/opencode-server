@@ -46,13 +46,17 @@ push to main (PRs run the checks only, never deploy)
      ├─ deploy-prod (main pushes only, needs bootstrap)
      │    ├─ upload app bundle → OIDC creds → init (S3) → validate → plan
      │    └─ apply + smoke test, only when the plan has changes
-     └─ deploy-app (app-file changes only, after deploy-prod)
-          └─ SSM rolling restart (pull + up, no replacement) + smoke test
+      └─ deploy-app (app-file changes only, after deploy-prod)
+           └─ SSM blue-green switch (idle color up, /ready-gated, no replacement) + smoke test
 ```
 App changes never replace the instance: the bundle (`app/`) uploads to S3
-and the live box pulls + restarts containers (seconds of blip). Host
-changes (Terraform) still replace — rarely, by construction. Rationale:
-[`docs/adr/0011-rolling-deploys.md`](docs/adr/0011-rolling-deploys.md).
+and the live box starts the idle backend color, waits for its `/ready`,
+then stops the live color — no failed requests, and a bad release aborts
+with live untouched. Host changes (Terraform) still replace — rarely, by
+construction. Rationale:
+[`docs/adr/0015-blue-green-ready-gate.md`](docs/adr/0015-blue-green-ready-gate.md)
+(supersedes the rolling restart in
+[`docs/adr/0011-rolling-deploys.md`](docs/adr/0011-rolling-deploys.md)).
 Gates fail open: if the filter breaks, everything runs. Docs-only pushes
 skip `terraform`, `local`, and `deploy-prod` entirely.
 
@@ -123,10 +127,13 @@ in; the data volume survives replacement.
 
 Design rationale lives in [`docs/adr/0001-caddy-tls-proxy.md`](docs/adr/0001-caddy-tls-proxy.md)
 and [`docs/adr/0014-github-sso-oauth2-proxy.md`](docs/adr/0014-github-sso-oauth2-proxy.md):
-Caddy terminates TLS and gates every browser route (except `/ping`) on
+Caddy terminates TLS and gates every browser route (except `/ping` and
+`/ready`) on
 GitHub SSO via oauth2-proxy (single-user allowlist); the opencode backend
 password stays machine-only — Caddy injects it after SSO, so you never
-type a shared password.
+type a shared password. `/ready` is the public readiness gate (200
+`"ready"` only while a backend color answers; bodies masked) used by
+deploys and the uptime probe.
 
 One-time setup (from your laptop, needs AWS credentials):
 
@@ -177,7 +184,8 @@ Caddy + opencode run as containers from `app/compose.yaml` (images pinned
 [`docs/adr/0007-compose-deployment.md`](docs/adr/0007-compose-deployment.md).
 
 ```bash
-make test-boot   # full chain locally: compose up, HTTPS, 302 SSO gate, 200 with
+make test-boot   # full chain locally: compose up, HTTPS, 302 SSO gate, /ready,
+                 # then a blue-green switch rehearsal sampled for any failed request
 ```
 
 `test-boot` uses dummy env (never committed, dummy OAuth values — proves
@@ -219,9 +227,10 @@ and variables → Actions → Variables tab), push, then click the SNS
 confirmation email (subscription stays `PendingConfirmation` until you do
 — no emails before that).
 
-Uptime is watched separately: Route 53 probes the unauthenticated
-`/ping` every 30s and pages after 3 failures (~$0.50/mo). Probes never
-touch opencode, so they stay out of the login-failure metric.
+Uptime is watched separately: Route 53 probes the public `/ready` gate
+every 30s and pages after 3 failures (~$0.50/mo) — full chain (edge +
+backend), so app failure pages too. Probes bypass SSO, so they stay out
+of the login-failure metric.
 
 ## Git on the server (commits + push)
 

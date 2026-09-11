@@ -17,10 +17,11 @@ trade-offs, and never rewrite an accepted record — supersede it with a new one
 | [0008](0008-data-volume.md)         | Persistent data volume for deploy-often | Accepted | 2026-09-10 |
 | [0009](0009-uptime-monitoring.md)   | External uptime monitoring | Accepted | 2026-09-10 |
 | [0010](0010-git-auth.md)            | Git identity and auth on the server | Accepted | 2026-09-10 |
-| [0011](0011-rolling-deploys.md)     | Zero-downtime app deploys via S3 bundle + SSM | Accepted | 2026-09-10 |
+| [0011](0011-rolling-deploys.md)     | Zero-downtime app deploys via S3 bundle + SSM | Superseded by 0015 | 2026-09-10 |
 | [0012](0012-deploy-role.md)           | Deploy role and policy managed by bootstrap | Accepted | 2026-09-11 |
 | [0013](0013-pipeline-bootstrap.md)     | Bootstrap applied by the pipeline | Accepted | 2026-09-11 |
 | [0014](0014-github-sso-oauth2-proxy.md) | Passwordless GitHub SSO via oauth2-proxy | Accepted | 2026-09-11 |
+| [0015](0015-blue-green-ready-gate.md) | Blue-green backends with a public /ready gate | Accepted | 2026-09-11 |
 
 ## Creating a New ADR
 
