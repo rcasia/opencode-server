@@ -37,22 +37,36 @@ mount -a
 systemctl enable --now docker
 usermod -aG docker ec2-user || true
 
-# AWS CLI v2 (SSM password fetch below)
+# AWS CLI v2 (SSM password fetch below). Downloaded over TLS from AWS's
+# canonical install URL (no versioned artifact exists that stays current).
+# No checksum to verify against: AWS publishes GPG .sig files but no
+# sha256, and automating GPG at boot would embed a rotating public key
+# whose rotation would brick unattended boots — so TLS plus fail-loud
+# unzip/install is the deliberate trade-off (ADR-0003).
 curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
 unzip -q -o /tmp/awscliv2.zip -d /tmp
 /tmp/aws/install --update 2>/dev/null || /tmp/aws/install
 rm -rf /tmp/aws /tmp/awscliv2.zip
 
-# Docker Compose plugin (dnf, fallback to GitHub release for the host arch)
+# Docker Compose plugin: dnf first, pinned GitHub fallback for the host
+# arch. The fallback stays because AL2023 repos are not guaranteed to
+# carry docker-compose-plugin on every AMI revision — but it never tracks
+# `latest`: COMPOSE_VERSION and the per-arch sha256 below bump together as
+# one reviewed change (hashes are the release's published .sha256 assets).
 dnf install -y docker-compose-plugin || {
-  # shellcheck disable=SC2034
-  # (double-dollar escapes render shell expansions; shellcheck sees $$ = PID)
-  TAG=$(curl -fsSL https://api.github.com/repos/docker/compose/releases/latest | jq -r .tag_name)
-  # shellcheck disable=SC2034
-  # (same double-dollar escape as TAG above)
+  # Bare $VAR (no braces): templatefile only interpolates ${...}, so these
+  # pass through untouched, and shellcheck tracks them normally.
+  COMPOSE_VERSION="v5.5.1"
   ARCH=$(uname -m)
+  case "$ARCH" in
+    x86_64) EXPECTED_SHA256="db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576" ;;
+    aarch64) EXPECTED_SHA256="732e3a84c1a0f67256ce80bc2598a24546b10ca05f9faa97efceb1171ece2ef7" ;;
+    *) echo "unsupported arch $ARCH for compose fallback"; exit 1 ;;
+  esac
   mkdir -p /usr/local/lib/docker/cli-plugins
-  curl -fsSL "https://github.com/docker/compose/releases/download/$${TAG}/docker-compose-linux-$${ARCH}" -o /usr/local/lib/docker/cli-plugins/docker-compose
+  curl -fsSL "https://github.com/docker/compose/releases/download/$COMPOSE_VERSION/docker-compose-linux-$ARCH" -o /usr/local/lib/docker/cli-plugins/docker-compose
+  ACTUAL_SHA256=$(sha256sum /usr/local/lib/docker/cli-plugins/docker-compose | cut -d ' ' -f 1)
+  [ "$ACTUAL_SHA256" = "$EXPECTED_SHA256" ] || { echo "compose checksum mismatch"; exit 1; }
   chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 }
 docker compose version

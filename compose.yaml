@@ -1,8 +1,11 @@
 # Moto mock for fully local deploys. No AWS credentials, no pip install.
 #   make local-up && make plan-local && make apply-local
+# Image is pinned tag@digest per ADR-0003; keep in sync with the moto line
+# in .github/workflows/ci.yml (Dependabot docker-compose covers /app only,
+# so bump this digest by hand).
 services:
   moto:
-    image: motoserver/moto:latest
+    image: motoserver/moto:5.2.3@sha256:91fd602a21f49cf9eb82fdf474015a3c131d40104c8297ea6a2ca920708ae32c
     ports:
       - "5000:5000"
     environment:
