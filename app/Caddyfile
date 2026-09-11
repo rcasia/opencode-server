@@ -72,6 +72,11 @@
 			# budget must span the whole settle window in time.
 			lb_try_duration 10s
 			lb_retries 5
+			# fail_duration mirrors the main route: without it a
+			# dial failure does not mark the stopped color down
+			# and `first` keeps selecting it (sampler showed `/`
+			# clean while /ready 502'd across the same stop).
+			fail_duration 30s
 			# Active health checks (mirrors the main route): without
 			# them a stopped color is never marked down and `first`
 			# keeps routing to it forever (observed as permanent
