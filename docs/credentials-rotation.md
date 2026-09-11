@@ -37,15 +37,25 @@ IID=$(aws ec2 describe-instances --region eu-west-1 \
   --query 'Reservations[0].Instances[0].InstanceId' --output text)
 
 # 3. re-fetch all three per-service env files from SSM (password lands
-#    in opencode.env, derived BASIC_AUTH in caddy.env), then recreate the
-#    live backend (new password) + Caddy (new BASIC_AUTH). Compose ignores
-#    env_file content changes, so bare `up -d` would be a no-op — and with
-#    blue-green it would also start the idle color. LIVE names the serving
-#    color (blue/green, ADR-0015). Seconds of blip on the edge while Caddy
-#    recreates — expected for rotation.
+#    in opencode.env, derived BASIC_AUTH in caddy.env), then run a normal
+#    blue-green deploy: the idle color starts with the new environment
+#    and the live color drains first — no 503 window, no killed sessions
+#    (ADR-0015). Force-recreating the live color directly is the outage
+#    this flow exists to avoid.
 aws ssm send-command --region eu-west-1 --instance-ids "$IID" \
   --document-name AWS-RunShellScript \
-  --parameters 'commands=["set -euo pipefail", "/usr/local/bin/opencode-secrets-refresh.sh", "LIVE=$(cat /opt/opencode/.live-color)", "cd /opt/opencode && docker compose up -d --force-recreate --no-deps opencode-$LIVE caddy"]' \
+  --parameters 'commands=["set -euo pipefail", "/usr/local/bin/opencode-secrets-refresh.sh", "cd /opt/opencode && ./switch.sh deploy"]' \
+  --query 'Command.CommandId' --output text
+```
+
+Caddy reads `BASIC_AUTH` at container start, so it still needs one
+recreate after a password rotation (seconds of edge blip — the one
+accepted downtime in this runbook; everything else is hitless):
+
+```bash
+aws ssm send-command --region eu-west-1 --instance-ids "$IID" \
+  --document-name AWS-RunShellScript \
+  --parameters 'commands=["cd /opt/opencode && docker compose up -d --force-recreate --no-deps caddy"]' \
   --query 'Command.CommandId' --output text
 ```
 
@@ -88,9 +98,10 @@ openssl rand -base64 32 | tr -- '+/' '-_' | tr -d '\n' | \
 
 # Pick up on the box (same $IID lookup as §1; prints nothing secret):
 # re-fetch all three per-service env files (OAuth pair lands in
-# oauth2.env), then recreate oauth2-proxy alone (its own seconds-long
-# SSO blip, ADR-0015) — bare `up -d` would neither recreate it nor
-# leave the idle color stopped.
+# oauth2.env), then recreate oauth2-proxy alone. Its seconds-long SSO
+# blip is accepted (a cookie-secret rotation invalidates every session
+# anyway — everyone logs back in via GitHub), and unlike the backend
+# password path it needs no blue-green deploy.
 aws ssm send-command --region eu-west-1 --instance-ids "$IID" \
   --document-name AWS-RunShellScript \
   --parameters 'commands=["set -euo pipefail", "/usr/local/bin/opencode-secrets-refresh.sh", "cd /opt/opencode && docker compose up -d --force-recreate --no-deps oauth2-proxy"]' \
