@@ -20,9 +20,16 @@ aws ssm put-parameter \
 Do not put the real value in a shell history if that is a concern; use your
 normal secure operator workflow for supplying the value.
 
-The production configuration maps the parameter to `ANTHROPIC_API_KEY`.
-The value is fetched on the instance and consumed by `app/opencode.json`
-through `{env:ANTHROPIC_API_KEY}`.
+The production configuration maps parameters to environment variables
+via `provider_api_key_parameters` in the tfvars (today only
+`OPENCODE_API_KEY = "/opencode/opencode-api-key"`). The value is fetched
+on the instance into `/opt/opencode/opencode.env` (0600) and consumed by
+`app/opencode.json` through `{env:...}`. The tfvars mapping is the
+contract: any `{env:X}` referenced by `opencode.json` without a mapping
+leaves that provider unfed, and `refresh_secrets` logs a WARNING naming
+the missing variable (boot audit surfaces it; `test-boot` asserts the
+same from the checked-in config). To feed Anthropic/OpenAI directly,
+add their mappings per "Adding another provider" below.
 
 ## Rotation without replacement
 
@@ -37,7 +44,8 @@ aws ssm send-command \
   --region eu-west-1
 ```
 
-The refresh script keeps shell tracing disabled, rewrites `/opt/opencode/app.env`
+The refresh script keeps shell tracing disabled, rewrites
+`/opt/opencode/opencode.env` (plus `caddy.env`/`oauth2.env`)
 atomically with mode `0600`, and includes the configured provider keys. The
 blue-green switch then starts the idle backend with the new environment and
 only stops the live backend after readiness succeeds.

@@ -88,6 +88,24 @@ refresh_secrets() {
   TMP_OAUTH2=""
   TMP_OPENCODE=""
   trap - EXIT
+  check_provider_wiring
+}
+
+# Provider wiring audit (issue #49): every {env:X} referenced by the
+# managed opencode.json must be provided by one of the per-service env
+# files, else the agent fails on first model call with no hint. WARNING
+# only (never fail boot/refresh): the message lands in
+# cloud-init-output.log at boot where the boot-warnings audit surfaces
+# it, and in SSM output on manual re-runs.
+check_provider_wiring() {
+  [ -f "$OPT_DIR/opencode.json" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  jq -r '[.. | strings | select(startswith("{env:") and endswith("}")) | sub("^\\{env:"; "") | sub("\\}$"; "")] | unique[]' "$OPT_DIR/opencode.json" 2>/dev/null \
+    | while IFS= read -r _var; do
+      [ -n "${_var:-}" ] || continue
+      grep -hq "^${_var}=" "$OPT_DIR/caddy.env" "$OPT_DIR/oauth2.env" "$OPT_DIR/opencode.env" 2>/dev/null \
+        || echo "WARNING: opencode.json references env ${_var} but no per-service env file provides it (check provider_api_key_parameters)" >&2
+    done
 }
 
 git_setup() {

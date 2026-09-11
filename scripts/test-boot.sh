@@ -192,6 +192,17 @@ fi
 docker compose exec -T opencode-blue test -f /root/.config/opencode/opencode.json \
   || { echo "FAIL: managed opencode.json not mounted"; exit 1; }
 echo "PASS: per-service env files deliver secrets only to the service that needs them; managed config is mounted"
+echo "==> Asserting provider wiring matches opencode.json (issue #49)"
+# Same audit as app.sh check_provider_wiring, driven by parsing
+# opencode.json (not hardcoded names): every {env:X} it references
+# must be provided by one of the three local env files.
+jq -r '[.. | strings | select(startswith("{env:") and endswith("}")) | sub("^\\{env:"; "") | sub("\\}$"; "")] | unique[]' opencode.json 2>/dev/null \
+  | while IFS= read -r _var; do
+    [ -n "${_var:-}" ] || continue
+    grep -hq "^${_var}=" caddy.env oauth2.env opencode.env 2>/dev/null \
+      || { echo "FAIL: opencode.json references env ${_var} but no local env file provides it"; exit 1; }
+  done
+echo "PASS: every {env:} reference in opencode.json is provided"
 # No 2>/dev/null: adapt warnings must surface in the log; stdout still pipes
 # to grep so the JSON response remains quiet unless it proves the header.
 docker compose exec -T caddy caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile \
