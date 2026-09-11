@@ -272,6 +272,12 @@ sandbox sh -c 'rm -rf /tmp/sandbox-probe && mkdir -p /tmp/sandbox-probe && cd /t
   || { echo "FAIL: git commit does not work inside sandbox"; exit 1; }
 echo "PASS: git works inside sandbox (init + commit)"
 
+echo "==> Probing opencode.ai egress (the web UI prompts through the opencode provider)"
+ZEN_BODY="$(sandbox curl -s --max-time 20 https://opencode.ai/ || true)"
+printf '%s' "$ZEN_BODY" | grep -qi 'not in the allowlist' \
+  && { echo "FAIL: opencode.ai blocked from inside sandbox"; exit 1; }
+echo "PASS: opencode.ai reachable through sandbox egress proxy"
+
 echo "==> Probing provider egress with a dummy-credential model call"
 MODEL_OUT="$(sandbox timeout 120 opencode run 'reply with the single word ok' 2>&1 || true)"
 if printf '%s' "$MODEL_OUT" | grep -qiE '401|unauthori[sz]ed|invalid api key|invalid.*key|authentication failed'; then
