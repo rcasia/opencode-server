@@ -19,9 +19,15 @@ rule 10).
   `switch.sh` over SSM: the idle color starts, must answer authed `GET /`
   through Caddy, and only then does the live color stop — Caddy (stable
   edge, health-checked `first`-policy failover) retries instead of
-  failing, Caddyfile changes apply via `caddy reload`, and a bad release
-  aborts with live untouched. Rollback = revert + push.
-  (`bundle.tf`, `app/switch.sh`, ADR-0015)
+   failing, Caddyfile changes apply via `caddy reload`, and a bad release
+   aborts with live untouched. Rollback = revert + push.
+   (`bundle.tf`, `app/switch.sh`, ADR-0015)
+ - **App-only pushes ship via `deploy-app`.** When infra is unchanged
+   (`deploy-prod` skipped counts as satisfied; failed still blocks),
+   the bundle uploads and `switch.sh deploy` runs over SSM — including
+   from a cold edge (Caddy started first when missing) so a dead host
+   recovers without replacement.
+   (`.github/workflows/ci.yml`, `app/switch.sh`)
 - **Cattle hosts.** Any `user_data` change replaces the instance
   (`user_data_replace_on_change`); EIP and data volume survive. The
   zero-downtime promise above covers app deploys only: a host replacement
