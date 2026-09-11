@@ -307,17 +307,15 @@ resource "aws_s3_bucket_lifecycle_configuration" "audit" {
     id     = "expire-noncurrent-versions"
     status = "Enabled"
 
+    # Empty filter = whole bucket (provider v5 warns without one).
+    filter {}
+
     noncurrent_version_expiration {
       noncurrent_days = 90
     }
   }
 }
 
-# One policy: TLS-only deny plus the CloudTrail delivery grants
-# (GetBucketAcl check + PutObject under trail/). No unencrypted-put deny
-# on purpose: the CloudTrail writer does not send the SSE header, so
-# StringNotEquals would deny delivery; the bucket default (AES256)
-# already encrypts everything at rest.
 data "aws_iam_policy_document" "audit" {
   statement {
     sid       = "DenyPlaintextTransport"

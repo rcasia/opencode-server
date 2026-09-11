@@ -27,7 +27,9 @@ SAMPLER_PID=""
 trap 'kill "$SAMPLER_PID" 2>/dev/null || true; docker compose down -v >/dev/null 2>&1; rm -f app.env .live-color "$SAMPLER_LOG"' EXIT
 
 echo "==> Validating compose config"
-docker compose config --quiet
+# Keep stderr visible so validation warnings surface in CI logs; only the
+# verbose rendered config on stdout is discarded.
+docker compose config >/dev/null
 jq empty opencode.json
 grep -q '"apiKey": "{env:ANTHROPIC_API_KEY}"' opencode.json
 grep -q '"apiKey": "{env:OPENAI_API_KEY}"' opencode.json
@@ -76,7 +78,9 @@ echo "==> Asserting backend password and provider keys are wired"
 [ "$(docker compose exec -T opencode-blue test -f /root/.config/opencode/opencode.json)" ] \
   || { echo "FAIL: managed opencode.json not mounted"; exit 1; }
 echo "PASS: backend receives provider credentials through app.env and managed config is mounted"
-docker compose exec -T caddy caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile 2>/dev/null \
+# No 2>/dev/null: adapt warnings must surface in the log; stdout still pipes
+# to grep so the JSON response remains quiet unless it proves the header.
+docker compose exec -T caddy caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile \
   | grep -q 'Authorization' || { echo "FAIL: Caddy injects no Authorization header"; exit 1; }
 echo "PASS: Caddy injects Basic auth to the backend after SSO"
 

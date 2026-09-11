@@ -10,6 +10,14 @@ on:
 permissions:
   contents: read
 
+# Silence the `git init` default-branch hint actions/checkout prints on
+# every job (13 lines of log noise per job; issue #5). init.defaultBranch
+# only affects `git init`, nothing else the pipeline runs.
+env:
+  GIT_CONFIG_COUNT: 1
+  GIT_CONFIG_KEY_0: init.defaultBranch
+  GIT_CONFIG_VALUE_0: main
+
 jobs:
   changes:
     permissions:
@@ -60,7 +68,25 @@ jobs:
         with:
           terraform_version: "1.13.3"
           terraform_wrapper: false
-      - uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
+      # No pre-commit/action: v3.0.1 bundles actions/cache@v4 (Node 20,
+      # deprecated) with no newer release upstream. pip + cache@v6
+      # (Node 24) runs the same hooks warning-free; switch back when
+      # upstream ships a Node 24 release (revisit 2026-12).
+      - name: Install pre-commit
+        run: pip install "pre-commit==4.6.2"
+      - name: Restore pre-commit hook envs
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('.pre-commit-config.yaml') }}
+      - name: Run pre-commit on all files
+        run: pre-commit run --show-diff-on-failure --color=always --all-files
+      - name: Save pre-commit hook envs
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('.pre-commit-config.yaml') }}
 
   terraform:
     needs: [changes]
@@ -201,10 +227,6 @@ jobs:
     env:
       AWS_REGION: eu-west-1
       TF_STATE_KEY: opencode-server/prod/terraform.tfstate
-      TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
-      # Operator PII for the public repo (see #26): committed prod.tfvars
-      # holds placeholders that fail closed; real values arrive here.
-      # Unset secrets expand to "" which matches the placeholder defaults.
       TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
       TF_VAR_github_oauth_client_id: ${{ secrets.OAUTH_CLIENT_ID }}
       TF_VAR_github_oauth_user: ${{ secrets.OAUTH_USER }}
@@ -241,6 +263,8 @@ jobs:
         run: terraform validate
       - name: Terraform plan
         id: plan
+        env:
+          TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
         run: |
           terraform plan -var-file=environments/prod.tfvars -var "deployed_version=$GITHUB_SHA" -input=false -out=tfplan -detailed-exitcode || exitcode=$?
           exitcode=${exitcode:-0}
@@ -283,6 +307,25 @@ jobs:
             sleep 20
           done
           echo "site never returned the SSO gate (last: $RESP)"; exit 1
+      - name: Boot warnings audit (fresh boot only, informational)
+        if: steps.plan.outputs.exitcode == '2'
+        run: |
+          IID="$(terraform output -raw instance_id 2>/dev/null || true)"
+          if [ -z "$IID" ]; then echo "boot audit skipped: no instance id"; exit 0; fi
+          CMD_ID="$(aws ssm send-command --instance-ids "$IID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=[\"journalctl -p warning -b --no-pager 2>&1 | tail -n 40\", \"grep -i -E 'warn|deprecat|fail' /var/log/cloud-init-output.log | tail -n 40 || true\"]" \
+            --query "Command.CommandId" --output text 2>/dev/null || true)"
+          if [ -z "$CMD_ID" ]; then echo "boot audit skipped: SSM send-command failed"; exit 0; fi
+          for _ in $(seq 1 24); do
+            STATUS="$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query Status --output text 2>/dev/null || echo Pending)"
+            [ "$STATUS" = "Success" ] && break
+            case "$STATUS" in Failed|Cancelled|TimedOut) break;; esac
+            sleep 5
+          done
+          echo "--- journal warnings (fresh boot) + cloud-init warning lines ---"
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query StandardOutputContent --output text 2>/dev/null || echo "(no output)"
+          exit 0
       - name: Boot diagnostics (only when apply ran and something above failed)
         if: failure() && steps.plan.outputs.exitcode == '2'
         run: |
