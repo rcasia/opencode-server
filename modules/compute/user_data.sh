@@ -79,6 +79,9 @@ OAUTH2_PROXY_CLIENT_ID=${github_oauth_client_id}
 OAUTH2_PROXY_GITHUB_USERS=${github_oauth_user}
 OAUTH2_PROXY_REDIRECT_URL=https://${domain_name}/oauth2/callback
 ENV_EOF
+# app.env will hold secrets below: lock it to 0600 before appending them
+# so the values are never world-readable (default umask is 022).
+chmod 600 /opt/opencode/app.env
 
 # Secrets from SSM (ADR-0004, ADR-0014): never in repo/state/logs.
 # set -x at the top would otherwise echo values into
@@ -111,7 +114,10 @@ docker compose ps
 # of failing boot — git is not boot-critical.
 cat > /usr/local/bin/opencode-git-setup.sh <<'GIT_EOF'
 #!/bin/bash
-# Never prints the token (no set -x here).
+# Never prints the token: xtrace stays off in here even though the outer
+# boot script runs with set -x (quoted heredoc, so outer tracing only
+# sees the cat, never these expansions).
+set +x
 set -euo pipefail
 COMPOSE="docker compose -f /opt/opencode/compose.yaml"
 # First pulls can take a while; git config must be present straight after
