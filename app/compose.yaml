@@ -14,27 +14,13 @@ services:
   caddy:
     image: caddy:2.11-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     restart: always
-    # Hardening ceilings (issue #11) — steady-state use is far below
-    # these; budget fits a 2GB box (steady ~768M, transient switch
-    # overlap ~1.3G). `mem_limit` is what `docker compose up`
-    # enforces; the `deploy` block states the same ceiling for swarm
-    # readers. No read_only: Caddy must persist certs/OCSP (/data)
-    # and locks (/config), and an untested read-only edge risks
-    # breaking TLS renewal — volumes already bound its writes.
     mem_limit: 128M
     deploy:
       resources:
         limits:
           memory: 128M
-          # Co-located with top-level pids_limit (equal values): compose
-          # v5.1+ normalises pids_limit into limits.pids and rejects the
-          # project when the deploy block exists with only memory set.
-          # Same cgroup ceiling, enforced by the top-level field on
-          # non-swarm `docker compose up`.
           pids: 128
     pids_limit: 128
-    # Drop everything, then re-add only NET_BIND_SERVICE so Caddy can
-    # bind 80/443. No other caps needed (state lives on volumes).
     cap_drop:
       - ALL
     cap_add:
@@ -56,17 +42,12 @@ services:
       - opencode-green
       - oauth2-proxy
     healthcheck:
-      # Caddy admin API needs no auth; 401s on :443 would false-negative.
-      # 127.0.0.1 (not localhost): busybox wget tries ::1 first and fails.
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2019/config/ || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
 
-  # Color A of the blue-green pair. Shares every volume with color B: only
-  # one runs at a time (brief overlap during a switch), so sessions and
-  # workspace survive the switch on the same disk.
   opencode-blue:
     image: ghcr.io/anomalyco/opencode:1.18.30@sha256:412b37a894bb937a0d5d6a1860789b9fd7d34a109334bec98a3f6ecf812bb442
     command: ["web", "--hostname", "0.0.0.0", "--port", "4096"]
@@ -77,20 +58,14 @@ services:
       resources:
         limits:
           memory: 512M
-          # Same v5 co-location as caddy: equal to pids_limit below.
           pids: 256
     pids_limit: 256
-    # No cap_drop here on purpose: the agent runs as root and spawns
-    # tool subprocesses (shell/git), and the docker.sock mount is
-    # de-facto host root anyway — dropping in-container caps would be
-    # theater that risks breaking tool execution. no-new-privileges
-    # still blocks setuid escalation without affecting the socket.
     security_opt:
       - no-new-privileges:true
     working_dir: /root
     volumes:
       - opencode-workspace:/root
-      - opencode-config:/root/.config/opencode
+      - ./opencode.json:/root/.config/opencode/opencode.json:ro
       - opencode-data:/root/.local/share/opencode
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
@@ -98,8 +73,6 @@ services:
     env_file:
       - app.env
 
-  # Color B of the blue-green pair. Identical to color A by construction —
-  # keep the two services in sync (same image, command, volumes, env).
   opencode-green:
     image: ghcr.io/anomalyco/opencode:1.18.30@sha256:412b37a894bb937a0d5d6a1860789b9fd7d34a109334bec98a3f6ecf812bb442
     command: ["web", "--hostname", "0.0.0.0", "--port", "4096"]
@@ -110,17 +83,14 @@ services:
       resources:
         limits:
           memory: 512M
-          # Same v5 co-location as caddy: equal to pids_limit below.
           pids: 256
     pids_limit: 256
-    # Same exception as opencode-blue: no cap_drop (root tool
-    # subprocesses + docker.sock); no-new-privileges only.
     security_opt:
       - no-new-privileges:true
     working_dir: /root
     volumes:
       - opencode-workspace:/root
-      - opencode-config:/root/.config/opencode
+      - ./opencode.json:/root/.config/opencode/opencode.json:ro
       - opencode-data:/root/.local/share/opencode
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
@@ -128,13 +98,6 @@ services:
     env_file:
       - app.env
 
-  # Human gate for passwordless GitHub SSO (ADR-0014, issue #17). No
-  # published ports — only reachable via Caddy forward_auth. Static knobs
-  # live here; secrets + IDs arrive via app.env (OAUTH2_PROXY_* names, so
-  # no compose interpolation is needed). Distroless base has no shell, so
-  # no healthcheck — liveness is restart=always plus Caddy's gate.
-  # Single instance (not blue-green: forward_auth takes one upstream): its
-  # own image bumps restart it with a seconds-long SSO blip (ADR-0015).
   oauth2-proxy:
     image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.4@sha256:b1b2021fe8f4004573e8d690dec6c7bb29cc44364572cf8510a05bf3a0ae2ded
     restart: always
@@ -143,11 +106,8 @@ services:
       resources:
         limits:
           memory: 128M
-          # Same v5 co-location as caddy: equal to pids_limit below.
           pids: 128
     pids_limit: 128
-    # Static distroless Go binary on unprivileged port 4180: needs no
-    # Linux capabilities, so drop them all.
     cap_drop:
       - ALL
     security_opt:
@@ -170,5 +130,4 @@ volumes:
   caddy-data:
   caddy-config:
   opencode-workspace:
-  opencode-config:
   opencode-data:
