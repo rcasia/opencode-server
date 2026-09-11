@@ -316,11 +316,11 @@ cmd_recover() {
 }
 
 cmd_deploy() {
-  [ -f compose.yaml ] && [ -f Caddyfile ] && [ -f app.env ] \
-    || fail "run from a compose dir (compose.yaml, Caddyfile, app.env)"
+  [ -f compose.yaml ] && [ -f Caddyfile ] && [ -f caddy.env ] && [ -f oauth2.env ] && [ -f opencode.env ] \
+    || fail "run from a compose dir (compose.yaml, Caddyfile, caddy.env, oauth2.env, opencode.env)"
   command -v curl >/dev/null || fail "curl is required for the edge check"
-  DOMAIN="$(sed -n 's/^DOMAIN=//p' app.env | head -n 1)"
-  [ -n "$DOMAIN" ] || fail "DOMAIN missing from app.env"
+  DOMAIN="$(sed -n 's/^DOMAIN=//p' caddy.env | head -n 1)"
+  [ -n "$DOMAIN" ] || fail "DOMAIN missing from caddy.env"
   DEPLOY_START="$(date +%s)"
 
   cp -f compose.yaml compose.yaml.bak

@@ -31,6 +31,7 @@ trade-offs, and never rewrite an accepted record — supersede it with a new one
 | [0025](0025-nono-sandbox-pilot.md) | nono sandbox pilot: vendored RPM + checked-in profile, docker.sock cut | Accepted | 2026-09-11 |
 | [0026](0026-container-hardening.md) | Container hardening: cap_drop ALL, explicit opencode.json permissions, docker.sock residual risk | Accepted | 2026-09-11 |
 | [0027](0027-nono-musl-install.md) | nono install via static musl tarball (RPM path removed) | Accepted | 2026-09-11 |
+| [0028](0028-per-service-env-files.md) | Per-service env files instead of a shared app.env | Accepted | 2026-09-11 |
 
 ## Creating a New ADR
 

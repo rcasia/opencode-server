@@ -20,51 +20,73 @@ COMPOSE="${COMPOSE:-docker compose -f $OPT_DIR/compose.yaml}"
 . "$STAGE_ENV"
 : "${AWS_REGION:?stage.env must set AWS_REGION}"
 
-TMP=""
-cleanup() { [ -n "${TMP:-}" ] && rm -f "$TMP"; }
+TMP_CADDY=""
+TMP_OAUTH2=""
+TMP_OPENCODE=""
+cleanup() {
+  [ -n "${TMP_CADDY:-}" ] && rm -f "$TMP_CADDY"
+  [ -n "${TMP_OAUTH2:-}" ] && rm -f "$TMP_OAUTH2"
+  [ -n "${TMP_OPENCODE:-}" ] && rm -f "$TMP_OPENCODE"
+}
 trap cleanup EXIT
 
-# Appends one provider key to $TMP. Called from provider-map.sh lines
+# Appends one provider key to $TMP_OPENCODE. Called from provider-map.sh lines
 # rendered by bootstrap (one `fetch_provider ENV PARAM` per entry).
 fetch_provider() {
   env_name="$1"
   parameter_name="$2"
   [ -n "$parameter_name" ] || return 0
   provider_value=$(aws ssm get-parameter --name "$parameter_name" --with-decryption --query Parameter.Value --output text --region "$AWS_REGION")
-  printf '%s=%s\n' "$env_name" "$provider_value" >> "$TMP"
+  printf '%s=%s\n' "$env_name" "$provider_value" >> "$TMP_OPENCODE"
   unset provider_value
 }
 
-# Re-fetches all runtime secrets from SSM without tracing. Also the
-# single manual rotation path (docs/credentials-rotation.md): update
-# SSM, run `/usr/local/bin/opencode-secrets-refresh.sh` (a wrapper for
-# `app.sh secrets`), then switch the backend color.
+# Re-fetches all runtime secrets from SSM without tracing. Writes three
+# per-service env files (ADR-0028): caddy.env, oauth2.env, opencode.env.
+# Also the single manual rotation path (docs/credentials-rotation.md):
+# update SSM, run `/usr/local/bin/opencode-secrets-refresh.sh` (a wrapper
+# for `app.sh secrets`), then switch the backend color.
 refresh_secrets() {
   set +x
   umask 077
-  TMP=$(mktemp "$OPT_DIR/app.env.XXXXXX")
-  printf 'DOMAIN=%s\n' "$DOMAIN" >> "$TMP"
-  printf 'OAUTH2_PROXY_CLIENT_ID=%s\n' "$GITHUB_OAUTH_CLIENT_ID" >> "$TMP"
-  printf 'OAUTH2_PROXY_GITHUB_USERS=%s\n' "$GITHUB_OAUTH_USER" >> "$TMP"
-  printf 'OAUTH2_PROXY_REDIRECT_URL=https://%s/oauth2/callback\n' "$DOMAIN" >> "$TMP"
+
+  # --- caddy.env: DOMAIN + BASIC_AUTH ---
+  TMP_CADDY=$(mktemp "$OPT_DIR/caddy.env.XXXXXX")
+  printf 'DOMAIN=%s\n' "$DOMAIN" >> "$TMP_CADDY"
   VALUE=$(aws ssm get-parameter --name "$OPENCODE_PASSWORD_PARAMETER" --with-decryption --query Parameter.Value --output text --region "$AWS_REGION")
-  printf 'OPENCODE_SERVER_PASSWORD=%s\n' "$VALUE" >> "$TMP"
   BASIC=$(printf 'opencode:%s' "$VALUE" | base64 | tr -d '\n')
-  printf 'BASIC_AUTH=%s\n' "$BASIC" >> "$TMP" # pragma: allowlist secret -- derived from an SSM secret at runtime
+  printf 'BASIC_AUTH=%s\n' "$BASIC" >> "$TMP_CADDY" # pragma: allowlist secret -- derived from an SSM secret at runtime
+
+  # --- opencode.env: password + provider API keys ---
+  TMP_OPENCODE=$(mktemp "$OPT_DIR/opencode.env.XXXXXX")
+  printf 'OPENCODE_SERVER_PASSWORD=%s\n' "$VALUE" >> "$TMP_OPENCODE"
   unset VALUE BASIC
-  OAUTH_SECRET=$(aws ssm get-parameter --name "$GITHUB_OAUTH_SECRET_PARAMETER" --with-decryption --query Parameter.Value --output text --region "$AWS_REGION")
-  printf 'OAUTH2_PROXY_CLIENT_SECRET=%s\n' "$OAUTH_SECRET" >> "$TMP"
-  unset OAUTH_SECRET
-  COOKIE_SECRET=$(aws ssm get-parameter --name "$OAUTH_COOKIE_SECRET_PARAMETER" --with-decryption --query Parameter.Value --output text --region "$AWS_REGION")
-  printf 'OAUTH2_PROXY_COOKIE_SECRET=%s\n' "$COOKIE_SECRET" >> "$TMP"
-  unset COOKIE_SECRET
+
   if [ -f "$PROVIDER_MAP" ]; then
     # shellcheck disable=SC1090
     . "$PROVIDER_MAP"
   fi
-  chmod 600 "$TMP"
-  mv -f "$TMP" "$OPT_DIR/app.env"
-  TMP=""
+
+  # --- oauth2.env: GitHub OAuth + cookie secret ---
+  TMP_OAUTH2=$(mktemp "$OPT_DIR/oauth2.env.XXXXXX")
+  printf 'OAUTH2_PROXY_CLIENT_ID=%s\n' "$GITHUB_OAUTH_CLIENT_ID" >> "$TMP_OAUTH2"
+  printf 'OAUTH2_PROXY_GITHUB_USERS=%s\n' "$GITHUB_OAUTH_USER" >> "$TMP_OAUTH2"
+  printf 'OAUTH2_PROXY_REDIRECT_URL=https://%s/oauth2/callback\n' "$DOMAIN" >> "$TMP_OAUTH2"
+  OAUTH_SECRET=$(aws ssm get-parameter --name "$GITHUB_OAUTH_SECRET_PARAMETER" --with-decryption --query Parameter.Value --output text --region "$AWS_REGION")
+  printf 'OAUTH2_PROXY_CLIENT_SECRET=%s\n' "$OAUTH_SECRET" >> "$TMP_OAUTH2"
+  unset OAUTH_SECRET
+  COOKIE_SECRET=$(aws ssm get-parameter --name "$OAUTH_COOKIE_SECRET_PARAMETER" --with-decryption --query Parameter.Value --output text --region "$AWS_REGION")
+  printf 'OAUTH2_PROXY_COOKIE_SECRET=%s\n' "$COOKIE_SECRET" >> "$TMP_OAUTH2"
+  unset COOKIE_SECRET
+
+  # Atomically replace each env file (chmod before mv keeps the window secret-free).
+  chmod 600 "$TMP_CADDY" "$TMP_OAUTH2" "$TMP_OPENCODE"
+  mv -f "$TMP_CADDY"   "$OPT_DIR/caddy.env"
+  mv -f "$TMP_OAUTH2"  "$OPT_DIR/oauth2.env"
+  mv -f "$TMP_OPENCODE" "$OPT_DIR/opencode.env"
+  TMP_CADDY=""
+  TMP_OAUTH2=""
+  TMP_OPENCODE=""
   trap - EXIT
 }
 
