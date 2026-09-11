@@ -1,14 +1,8 @@
 #!/bin/bash
 # Full-chain local test of app/ (ADR-0007, ADR-0014, ADR-0015): brings up
 # the exact prod compose stack with dummy env, then asserts TLS -> SSO
-# gate -> backend behavior, the public /ready gate, and a zero-downtime
-# blue-green switch (phase 3 rehearses what deploy-app runs in prod via
-# switch.sh, sampling /ready + / through the switch and failing on any
-# non-200 / non-302). DOMAIN=localhost gets Caddy a local CA cert, so
-# `curl -k` exercises real HTTPS through the same Caddyfile prod uses.
-# The real GitHub flow is not testable locally — dummy OAuth values prove
-# the wiring (logged-out redirects into /oauth2/*, /oauth2/auth denies),
-# not the IdP round-trip.
+# gate -> backend behavior, the public /ready gate, provider env/config
+# wiring, and a zero-downtime blue-green switch.
 set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../app" && pwd)"
@@ -24,6 +18,8 @@ printf 'OAUTH2_PROXY_GITHUB_USERS=%s\n' "boot-test-user" >> app.env
 printf 'OAUTH2_PROXY_REDIRECT_URL=%s\n' "https://localhost/oauth2/callback" >> app.env
 printf 'OAUTH2_PROXY_CLIENT_SECRET=%s\n' "boot-test-client-secret" >> app.env
 printf 'OAUTH2_PROXY_COOKIE_SECRET=%s\n' "boot-test-cookie-secret-32b-min" >> app.env
+printf 'ANTHROPIC_API_KEY=%s\n' "boot-test-anthropic-key" >> app.env
+printf 'OPENAI_API_KEY=%s\n' "boot-test-openai-key" >> app.env
 echo "blue" > .live-color
 SAMPLER_LOG="$(mktemp)"
 SAMPLER_PID=""
@@ -31,6 +27,11 @@ trap 'kill "$SAMPLER_PID" 2>/dev/null || true; docker compose down -v >/dev/null
 
 echo "==> Validating compose config"
 docker compose config --quiet
+jq empty opencode.json
+grep -q '"apiKey": "{env:ANTHROPIC_API_KEY}"' opencode.json
+grep -q '"apiKey": "{env:OPENAI_API_KEY}"' opencode.json
+echo "PASS: opencode.json is valid JSON and uses env substitution for provider keys"
+
 echo "==> Starting prod stack locally, live color blue (dummy env)"
 docker compose up -d --wait --wait-timeout 180 caddy oauth2-proxy opencode-blue >/dev/null
 
@@ -62,10 +63,16 @@ READY_BODY="$(curl -sk --max-time 10 https://localhost/ready || true)"
 [ "$READY_BODY" = "ready" ] || { echo "FAIL: /ready body is '$READY_BODY', want 'ready'"; exit 1; }
 echo "PASS: public /ready answers 'ready' (a backend color answers behind the edge)"
 
-echo "==> Asserting backend password still wired (machine-only)"
+echo "==> Asserting backend password and provider keys are wired"
 [ "$(docker compose exec -T opencode-blue printenv OPENCODE_SERVER_PASSWORD)" = "$DUMMY" ] \
   || { echo "FAIL: OPENCODE_SERVER_PASSWORD not set in backend"; exit 1; }
-echo "PASS: backend still requires its password (never typed by a human)"
+[ "$(docker compose exec -T opencode-blue printenv ANTHROPIC_API_KEY)" = "boot-test-anthropic-key" ] \
+  || { echo "FAIL: ANTHROPIC_API_KEY not set in backend"; exit 1; }
+[ "$(docker compose exec -T opencode-blue printenv OPENAI_API_KEY)" = "boot-test-openai-key" ] \
+  || { echo "FAIL: OPENAI_API_KEY not set in backend"; exit 1; }
+[ "$(docker compose exec -T opencode-blue test -f /root/.config/opencode/opencode.json)" ] \
+  || { echo "FAIL: managed opencode.json not mounted"; exit 1; }
+echo "PASS: backend receives provider credentials through app.env and managed config is mounted"
 docker compose exec -T caddy caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile 2>/dev/null \
   | grep -q 'Authorization' || { echo "FAIL: Caddy injects no Authorization header"; exit 1; }
 echo "PASS: Caddy injects Basic auth to the backend after SSO"
