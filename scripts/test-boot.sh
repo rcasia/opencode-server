@@ -293,7 +293,12 @@ sampler() {
 }
 sampler &
 SAMPLER_PID=$!
-COMPOSE_DIR="$APP_DIR" READY_TIMEOUT=60 ./switch.sh deploy
+# Tight test knobs: no step of the rehearsal may run past ~2 min.
+# READY_TIMEOUT=20 with 5s-bounded probes caps the green wait at
+# ~140s (green cold-starts in ~1 min: apk + sandbox + server);
+# DRAIN_TIMEOUT=10 caps the drain at ~2 min (nothing runs in test,
+# so the first poll already returns idle).
+COMPOSE_DIR="$APP_DIR" READY_TIMEOUT=20 DRAIN_TIMEOUT=10 ./switch.sh deploy
 kill "$SAMPLER_PID" 2>/dev/null || true
 wait "$SAMPLER_PID" 2>/dev/null || true
 if [ -s "$SAMPLER_LOG" ]; then

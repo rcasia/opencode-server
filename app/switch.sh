@@ -95,20 +95,27 @@ caddy_running() {
 }
 
 color_ready() {
+  # -T 5 bounds each probe: without it one hung connection stalls the
+  # whole wait (busybox wget defaults to a 900s read timeout).
   docker compose exec -T caddy \
-    sh -c 'wget -q -O /dev/null --header "Authorization: Basic $BASIC_AUTH" http://opencode-'"$1"':4096/' \
+    sh -c 'wget -T 5 -q -O /dev/null --header "Authorization: Basic $BASIC_AUTH" http://opencode-'"$1"':4096/' \
     >/dev/null 2>&1
 }
 
 wait_for_color() {
-  log "waiting for opencode-$1 to answer (up to ~$((READY_TIMEOUT * 2))s)"
+  log "waiting for opencode-$1 to answer (up to ~$((READY_TIMEOUT * 7))s)"
+  _n=0
   for _ in $(seq 1 "$READY_TIMEOUT"); do
+    _n=$((_n + 1))
     if color_ready "$1"; then
-      log "opencode-$1 is ready"
+      log "opencode-$1 is ready after ${_n} polls"
       return 0
     fi
+    [ "$((_n % 15))" = "0" ] && log "still waiting for opencode-$1 (${_n}/$READY_TIMEOUT polls)"
     sleep 2
   done
+  log "opencode-$1 never became ready; last container logs:"
+  docker compose logs --no-color --tail 50 "opencode-$1" 2>&1 || true
   return 1
 }
 
