@@ -22,4 +22,5 @@ github_oauth_user      = "rcasia"
 provider_api_key_parameters = {
   ANTHROPIC_API_KEY = "/opencode/anthropic-api-key"
   OPENAI_API_KEY    = ""
+  OPENCODE_API_KEY  = "/opencode/opencode-api-key"
 }
