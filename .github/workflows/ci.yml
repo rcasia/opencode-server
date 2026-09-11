@@ -371,7 +371,7 @@ jobs:
           echo "instance=$IID" >> "$GITHUB_OUTPUT"
           CMD_ID="$(aws ssm send-command --instance-ids "$IID" \
             --document-name "AWS-RunShellScript" \
-            --parameters "commands=[\"cd /opt/opencode && aws s3 cp s3://$BUCKET/app/compose.yaml compose.yaml --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/Caddyfile Caddyfile --region ${{ env.AWS_REGION }} && docker compose pull && docker compose up -d\"]" \
+            --parameters "commands=[\"cd /opt/opencode && aws s3 cp s3://$BUCKET/app/compose.yaml compose.yaml --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/Caddyfile Caddyfile --region ${{ env.AWS_REGION }} && docker compose pull && docker compose up -d && (/usr/local/bin/opencode-git-setup.sh || echo 'WARNING: git setup failed (non-blocking)')\"]" \
             --query "Command.CommandId" --output text)"
           echo "command=$CMD_ID" >> "$GITHUB_OUTPUT"
           for _ in $(seq 1 60); do
