@@ -38,7 +38,13 @@ jobs:
           filters: |
             infra:
               - '**/*.tf'
-              - '**/*.sh'
+              # Shell is host-replacing ONLY under modules/ (user_data
+              # bootstrap). Stage scripts (app/host/**, app/switch.sh)
+              # and test scripts (scripts/**) ship over SSM via
+              # deploy-app — a bare '**/*.sh' here would mark every
+              # stage change as infra and skip deploy-app forever,
+              # uploading new stages to S3 that never execute.
+              - 'modules/**/*.sh'
               - '**/*.tfvars'
               - '.terraform.lock.hcl'
               - 'bootstrap/.terraform.lock.hcl'
