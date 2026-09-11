@@ -25,6 +25,15 @@ echo "blue" > .live-color
 SAMPLER_LOG="$(mktemp)"
 SAMPLER_PID=""
 trap 'kill "$SAMPLER_PID" 2>/dev/null || true; docker compose down -v >/dev/null 2>&1; rm -f app.env .live-color compose.override.yaml "$SAMPLER_LOG"' EXIT
+# Dump backend state before the EXIT trap tears the stack down: a
+# sandbox that crash-loops leaves its reason only in container logs,
+# and `compose down -v` deletes them.
+dump_backend_state() {
+  echo "==> FAILURE: backend state"
+  docker compose ps || true
+  docker compose logs --no-color --tail 200 opencode-blue opencode-green 2>&1 || true
+}
+trap 'dump_backend_state' ERR
 
 echo "==> Validating compose config"
 # Keep stderr visible so validation warnings surface in CI logs; only the

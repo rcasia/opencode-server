@@ -161,6 +161,28 @@ jobs:
           terraform plan -target=module.compute -var-file=environments/local.tfvars -input=false -detailed-exitcode || exitcode=$?
           if [ "${exitcode:-0}" != "0" ]; then echo "non-idempotent plan on existing state"; exit 1; fi
 
+  app-test:
+    # Full-chain compose test on an x86_64 runner: the only pre-prod
+    # place the sandboxed backend really runs. Laptops here are ARM,
+    # where upstream ships no musl nono, so test-boot falls back to a
+    # plain backend and the sandbox stays unproven until prod. A broken
+    # sandbox entrypoint reached prod twice that way; this job is the
+    # gate that catches it.
+    needs: [changes]
+    if: always() && (needs.changes.result != 'success' || needs.changes.outputs.app == 'true' || needs.changes.outputs.pipeline == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Full-chain app test (compose, dummy env, sandboxed backend)
+        # test-boot dumps backend logs itself on failure (its ERR trap
+        # runs before the teardown that would delete them).
+        run: ./scripts/test-boot.sh
+
   bootstrap:
     # Runs in parallel with terraform/local: bootstrap only manages
     # the deploy trust (role/OIDC/policy) and never touches infra
@@ -228,8 +250,8 @@ jobs:
         run: aws iam delete-role-policy --role-name opencode-server-deploy --policy-name bridge || true
 
   deploy-prod:
-    needs: [pre-commit, terraform, local, bootstrap, changes]
-    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.changes.result != 'success' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.pipeline == 'true') && needs.pre-commit.result == 'success' && (needs.terraform.result == 'success' || needs.terraform.result == 'skipped') && (needs.local.result == 'success' || needs.local.result == 'skipped') && (needs.bootstrap.result == 'success' || needs.bootstrap.result == 'skipped')
+    needs: [pre-commit, terraform, local, app-test, bootstrap, changes]
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.changes.result != 'success' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.pipeline == 'true') && needs.pre-commit.result == 'success' && (needs.terraform.result == 'success' || needs.terraform.result == 'skipped') && (needs.local.result == 'success' || needs.local.result == 'skipped') && (needs.app-test.result == 'success' || needs.app-test.result == 'skipped') && (needs.bootstrap.result == 'success' || needs.bootstrap.result == 'skipped')
     runs-on: ubuntu-latest
     environment: prod
     concurrency:
@@ -447,8 +469,8 @@ jobs:
           aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query StandardOutputContent --output text 2>/dev/null || true
 
   deploy-app:
-    needs: [pre-commit, deploy-prod, changes]
-    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.pre-commit.result == 'success' && (needs.deploy-prod.result == 'success' || needs.deploy-prod.result == 'skipped') && (needs.changes.result != 'success' || (needs.changes.outputs.app == 'true' && needs.changes.outputs.infra != 'true'))
+    needs: [pre-commit, app-test, deploy-prod, changes]
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.pre-commit.result == 'success' && (needs.app-test.result == 'success' || needs.app-test.result == 'skipped') && (needs.deploy-prod.result == 'success' || needs.deploy-prod.result == 'skipped') && (needs.changes.result != 'success' || (needs.changes.outputs.app == 'true' && needs.changes.outputs.infra != 'true'))
     runs-on: ubuntu-latest
     environment: prod
     concurrency:
