@@ -128,6 +128,15 @@ resource "aws_instance" "server" {
     app_bundle_bucket             = var.app_bundle_bucket
   })
 
+  # IMDSv2 only: arbitrary agent code runs with docker.sock mounted, so
+  # unauthenticated IMDSv1 is an SSRF credential-theft path. Containers
+  # never need IMDS (AWS access flows through the instance role).
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
+  }
+
   root_block_device {
     volume_size = var.root_volume_size
     volume_type = "gp3"
