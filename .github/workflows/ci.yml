@@ -259,6 +259,11 @@ jobs:
     timeout-minutes: 30
     needs: [pre-commit, terraform, local, app-test, bootstrap, changes]
     if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.changes.result != 'success' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.pipeline == 'true') && needs.pre-commit.result == 'success' && (needs.terraform.result == 'success' || needs.terraform.result == 'skipped') && (needs.local.result == 'success' || needs.local.result == 'skipped') && (needs.app-test.result == 'success' || needs.app-test.result == 'skipped') && (needs.bootstrap.result == 'success' || needs.bootstrap.result == 'skipped')
+    # Heals the silent-no-op deploy (issue #45): deploy-app runs whenever
+    # app files changed and this job did NOT replace the instance. Empty
+    # when the plan was empty or this job was skipped (no replacement).
+    outputs:
+      replaced: ${{ steps.replaced.outputs.replaced }}
     runs-on: ubuntu-latest
     environment: prod
     concurrency:
@@ -301,14 +306,14 @@ jobs:
         run: |
           BUCKET="$(terraform -chdir=infra output -raw app_bundle_bucket 2>/dev/null || true)"
           if [ -z "$BUCKET" ] || ! aws s3api head-bucket --bucket "$BUCKET" --region "${{ env.AWS_REGION }}" 2>/dev/null; then echo "no bundle bucket yet, skipping"; exit 0; fi
-          aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/switch.sh "s3://$BUCKET/app/switch.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/opencode.json "s3://$BUCKET/app/opencode.json" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/nono-profile.json "s3://$BUCKET/app/nono-profile.json" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/nono-version.json "s3://$BUCKET/app/nono-version.json" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/host/app.sh "s3://$BUCKET/app/host/app.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/host/monitoring.sh "s3://$BUCKET/app/host/monitoring.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/compose.yaml "s3://$BUCKET/app/${GITHUB_SHA}/compose.yaml" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/Caddyfile "s3://$BUCKET/app/${GITHUB_SHA}/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/switch.sh "s3://$BUCKET/app/${GITHUB_SHA}/switch.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/opencode.json "s3://$BUCKET/app/${GITHUB_SHA}/opencode.json" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/nono-profile.json "s3://$BUCKET/app/${GITHUB_SHA}/nono-profile.json" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/nono-version.json "s3://$BUCKET/app/${GITHUB_SHA}/nono-version.json" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/host/app.sh "s3://$BUCKET/app/${GITHUB_SHA}/host/app.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/host/monitoring.sh "s3://$BUCKET/app/${GITHUB_SHA}/host/monitoring.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
           # Pinned nono musl tarball (static-pie: host and
           # container binary source). SHA-verified; boot installs
           # from disk, never curl-at-boot (ADR-0003, ADR-0027).
@@ -317,7 +322,7 @@ jobs:
           MUSL_SHA="$(jq -r .artifacts.tar_musl_x86_64.sha256 app/nono-version.json)"
           curl -fsSL "https://github.com/nolabs-ai/nono/releases/download/v${NONO_VERSION}/${MUSL_TAR}" -o "/tmp/${MUSL_TAR}"
           echo "${MUSL_SHA}  /tmp/${MUSL_TAR}" | sha256sum -c -
-          aws s3 cp "/tmp/${MUSL_TAR}" "s3://$BUCKET/app/${MUSL_TAR}" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp "/tmp/${MUSL_TAR}" "s3://$BUCKET/app/${GITHUB_SHA}/${MUSL_TAR}" --sse AES256 --region "${{ env.AWS_REGION }}"
       - name: Terraform validate
         run: terraform -chdir=infra validate
       # Fail-open alarm check (issue #13): an empty ALERT_EMAIL leaves the
@@ -393,14 +398,14 @@ jobs:
         if: steps.plan.outputs.exitcode == '2'
         run: |
           BUCKET="$(terraform -chdir=infra output -raw app_bundle_bucket)"
-          aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/switch.sh "s3://$BUCKET/app/switch.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/opencode.json "s3://$BUCKET/app/opencode.json" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/nono-profile.json "s3://$BUCKET/app/nono-profile.json" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/nono-version.json "s3://$BUCKET/app/nono-version.json" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/host/app.sh "s3://$BUCKET/app/host/app.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/host/monitoring.sh "s3://$BUCKET/app/host/monitoring.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/compose.yaml "s3://$BUCKET/app/${GITHUB_SHA}/compose.yaml" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/Caddyfile "s3://$BUCKET/app/${GITHUB_SHA}/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/switch.sh "s3://$BUCKET/app/${GITHUB_SHA}/switch.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/opencode.json "s3://$BUCKET/app/${GITHUB_SHA}/opencode.json" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/nono-profile.json "s3://$BUCKET/app/${GITHUB_SHA}/nono-profile.json" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/nono-version.json "s3://$BUCKET/app/${GITHUB_SHA}/nono-version.json" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/host/app.sh "s3://$BUCKET/app/${GITHUB_SHA}/host/app.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/host/monitoring.sh "s3://$BUCKET/app/${GITHUB_SHA}/host/monitoring.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
           # Pinned nono musl tarball (static-pie: host and
           # container binary source). SHA-verified; boot installs
           # from disk, never curl-at-boot (ADR-0003, ADR-0027).
@@ -409,7 +414,7 @@ jobs:
           MUSL_SHA="$(jq -r .artifacts.tar_musl_x86_64.sha256 app/nono-version.json)"
           curl -fsSL "https://github.com/nolabs-ai/nono/releases/download/v${NONO_VERSION}/${MUSL_TAR}" -o "/tmp/${MUSL_TAR}"
           echo "${MUSL_SHA}  /tmp/${MUSL_TAR}" | sha256sum -c -
-          aws s3 cp "/tmp/${MUSL_TAR}" "s3://$BUCKET/app/${MUSL_TAR}" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp "/tmp/${MUSL_TAR}" "s3://$BUCKET/app/${GITHUB_SHA}/${MUSL_TAR}" --sse AES256 --region "${{ env.AWS_REGION }}"
       - name: Boot gate (cloud-init success signal, before smoke)
         if: steps.plan.outputs.exitcode == '2' && steps.replaced.outputs.replaced == 'true'
         run: |
@@ -525,7 +530,7 @@ jobs:
   deploy-app:
     timeout-minutes: 30
     needs: [pre-commit, app-test, deploy-prod, changes]
-    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.pre-commit.result == 'success' && (needs.app-test.result == 'success' || needs.app-test.result == 'skipped') && (needs.deploy-prod.result == 'success' || needs.deploy-prod.result == 'skipped') && (needs.changes.result != 'success' || (needs.changes.outputs.app == 'true' && needs.changes.outputs.infra != 'true'))
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.pre-commit.result == 'success' && (needs.app-test.result == 'success' || needs.app-test.result == 'skipped') && (needs.deploy-prod.result == 'success' || needs.deploy-prod.result == 'skipped') && (needs.changes.result != 'success' || (needs.changes.outputs.app == 'true' && needs.deploy-prod.outputs.replaced != 'true'))
     runs-on: ubuntu-latest
     environment: prod
     concurrency:
@@ -562,14 +567,14 @@ jobs:
       - name: Upload app bundle
         run: |
           BUCKET="$(terraform -chdir=infra output -raw app_bundle_bucket)"
-          aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/switch.sh "s3://$BUCKET/app/switch.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/opencode.json "s3://$BUCKET/app/opencode.json" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/nono-profile.json "s3://$BUCKET/app/nono-profile.json" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/nono-version.json "s3://$BUCKET/app/nono-version.json" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/host/app.sh "s3://$BUCKET/app/host/app.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/host/monitoring.sh "s3://$BUCKET/app/host/monitoring.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/compose.yaml "s3://$BUCKET/app/${GITHUB_SHA}/compose.yaml" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/Caddyfile "s3://$BUCKET/app/${GITHUB_SHA}/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/switch.sh "s3://$BUCKET/app/${GITHUB_SHA}/switch.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/opencode.json "s3://$BUCKET/app/${GITHUB_SHA}/opencode.json" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/nono-profile.json "s3://$BUCKET/app/${GITHUB_SHA}/nono-profile.json" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/nono-version.json "s3://$BUCKET/app/${GITHUB_SHA}/nono-version.json" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/host/app.sh "s3://$BUCKET/app/${GITHUB_SHA}/host/app.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/host/monitoring.sh "s3://$BUCKET/app/${GITHUB_SHA}/host/monitoring.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
       - name: Blue-green switch via SSM
         run: |
           IID="$(terraform -chdir=infra output -raw instance_id)"
@@ -578,7 +583,7 @@ jobs:
           # runs longer than 12 min (image pull + switch should be <5 min).
           # CI polls 150x5s=750s to outlast the SSM timeout and see the final
           # status (TimedOut) rather than exit with an ambiguous Pending.
-          CMD_ID="$(aws ssm send-command --instance-ids "$IID" --document-name "AWS-RunShellScript" --timeout-seconds 720 --parameters "commands=[\"cd /opt/opencode && aws s3 cp s3://$BUCKET/app/compose.yaml compose.yaml --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/Caddyfile Caddyfile --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/switch.sh switch.sh --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/opencode.json opencode.json --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/nono-profile.json nono-profile.json --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/nono-version.json nono-version.json --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/host/app.sh host/app.sh --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/host/monitoring.sh host/monitoring.sh --region ${{ env.AWS_REGION }} && chmod +x switch.sh host/app.sh host/monitoring.sh && host/app.sh secrets && host/monitoring.sh && ./switch.sh deploy && (host/app.sh git-setup || echo 'WARNING: git setup failed (non-blocking)')\"]" --query "Command.CommandId" --output text)"
+          CMD_ID="$(aws ssm send-command --instance-ids "$IID" --document-name "AWS-RunShellScript" --timeout-seconds 720 --parameters "commands=[\"cd /opt/opencode && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/compose.yaml compose.yaml --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/Caddyfile Caddyfile --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/switch.sh switch.sh --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/opencode.json opencode.json --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/nono-profile.json nono-profile.json --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/nono-version.json nono-version.json --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/host/app.sh host/app.sh --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/host/monitoring.sh host/monitoring.sh --region ${{ env.AWS_REGION }} && chmod +x switch.sh host/app.sh host/monitoring.sh && host/app.sh secrets && host/monitoring.sh && ./switch.sh deploy && (host/app.sh git-setup || echo 'WARNING: git setup failed (non-blocking)')\"]" --query "Command.CommandId" --output text)"
           # Record the CommandId (issue #48): a timed-out poll must be
           # inspected (get-command-invocation), never answered with a
           # blind rerun — switch.sh now mutexes concurrent deploys.

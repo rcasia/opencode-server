@@ -1,8 +1,11 @@
-# App bundle bucket (ADR-0011, ADR-0015): the deployable behind zero-downtime
-# app deploys. user_data fetches compose.yaml + Caddyfile + switch.sh +
-# opencode.json + host/ stages from here at boot; deploy-app re-uploads on
-# app/** changes and switches colors via SSM. Versioned: rollback = revert
-# commit + push. Contents are reproducible from git, so force_destroy is safe.
+# App bundle bucket (ADR-0011, ADR-0015, issue #45): the deployable behind
+# zero-downtime app deploys. Keys are versioned per commit
+# (app/<sha>/...): user_data fetches app/${deployed_version}/... at boot,
+# so a host always runs exactly the commit Terraform applied — S3 and
+# state can never point at different commits. deploy-app re-uploads the
+# push SHA on app/** changes and switches colors via SSM. Rollback =
+# revert commit + push (a new SHA carrying old content). Contents are
+# reproducible from git, so force_destroy is safe.
 
 data "aws_caller_identity" "current" {}
 

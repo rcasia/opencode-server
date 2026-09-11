@@ -12,10 +12,13 @@ rule 10).
   checks (`pre-commit`, `terraform`, `local`) → `bootstrap` (deploy
   trust) → `deploy-prod` (plan, apply on changes only, smoke test) →
   `deploy-app` (app-file changes only).
-- **Zero-downtime app deploys.** `app/` ships as a versioned S3 bundle;
-  backend colors (`opencode-blue`/`opencode-green`, one live) switch via
+- **Zero-downtime app deploys.** `app/` ships as a per-commit S3 bundle
+  (`app/<sha>/`); backend colors (`opencode-blue`/`opencode-green`, one live) switch via
   `switch.sh` over SSM: the idle color starts, must answer authed `GET /`
-  through Caddy, and only then does the live color stop.
+  through Caddy, and only then does the live color stop. A boot always
+  runs exactly the commit Terraform applied (no fixed keys, no
+  state/artifact drift); `deploy-app` runs on every app change the
+  deploy did not already ship via replacement. Rationale: ADR-0015, issue #45.
 - **Constrained session recovery.** Deploys drain first: `switch.sh`
   polls `GET /session/status` on the live color and delays its stop
   while a run is active (bounded ~5 min, then proceeds). After the

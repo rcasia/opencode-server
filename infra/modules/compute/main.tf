@@ -191,6 +191,7 @@ resource "aws_instance" "server" {
     git_user_email                = var.git_user_email
     github_token_parameter        = var.github_token_parameter
     app_bundle_bucket             = var.app_bundle_bucket
+    deployed_version              = var.deployed_version
   })
 
   # IMDSv2 only: arbitrary agent code runs with docker.sock mounted, so

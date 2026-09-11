@@ -51,8 +51,10 @@ push to main (PRs run the checks only, never deploy)
       └─ deploy-app (app-file changes only, after deploy-prod)
            └─ SSM blue-green switch (idle color up, /ready-gated, no replacement) + smoke test
 ```
-App changes never replace the instance: the bundle (`app/`) uploads to S3
-and the live box starts the idle backend color, waits for its `/ready`,
+App changes never replace the instance: the bundle uploads versioned
+under `app/<commit-sha>/` in S3 (a boot always runs exactly the commit
+Terraform applied — no fixed keys, no state/artifact drift) and the live
+box starts the idle backend color, waits for its `/ready`,
 then stops the live color — no failed requests, and a bad release aborts
 with live untouched. Host changes (Terraform) still replace — rarely, by
 construction. Rationale:

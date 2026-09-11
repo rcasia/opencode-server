@@ -102,15 +102,15 @@ NONO_VERSION="0.76.0" # pinned nono release (matches app/nono-version.json)
 NONO_TAR="nono-v$NONO_VERSION-x86_64-unknown-linux-musl.tar.gz"
 NONO_TAR_SHA256="5a57c4b78c16146dc1dea192bd1b94a1636087ed5221023ecea1808e3967f6be" # pragma: allowlist secret -- pinned release hash, not a credential
 for _ in $(seq 1 60); do
-  aws s3 cp "s3://${app_bundle_bucket}/app/compose.yaml" /opt/opencode/compose.yaml --region "${aws_region}" \
-    && aws s3 cp "s3://${app_bundle_bucket}/app/Caddyfile" /opt/opencode/Caddyfile --region "${aws_region}" \
-    && aws s3 cp "s3://${app_bundle_bucket}/app/switch.sh" /opt/opencode/switch.sh --region "${aws_region}" \
-    && aws s3 cp "s3://${app_bundle_bucket}/app/opencode.json" /opt/opencode/opencode.json --region "${aws_region}" \
-    && aws s3 cp "s3://${app_bundle_bucket}/app/nono-profile.json" /opt/opencode/nono-profile.json --region "${aws_region}" \
-    && aws s3 cp "s3://${app_bundle_bucket}/app/nono-version.json" /opt/opencode/nono-version.json --region "${aws_region}" \
-    && aws s3 cp "s3://${app_bundle_bucket}/app/$NONO_TAR" "/opt/opencode/$NONO_TAR" --region "${aws_region}" \
-    && aws s3 cp "s3://${app_bundle_bucket}/app/host/app.sh" /opt/opencode/host/app.sh --region "${aws_region}" \
-    && aws s3 cp "s3://${app_bundle_bucket}/app/host/monitoring.sh" /opt/opencode/host/monitoring.sh --region "${aws_region}" \
+  aws s3 cp "s3://${app_bundle_bucket}/app/${deployed_version}/compose.yaml" /opt/opencode/compose.yaml --region "${aws_region}" \
+    && aws s3 cp "s3://${app_bundle_bucket}/app/${deployed_version}/Caddyfile" /opt/opencode/Caddyfile --region "${aws_region}" \
+    && aws s3 cp "s3://${app_bundle_bucket}/app/${deployed_version}/switch.sh" /opt/opencode/switch.sh --region "${aws_region}" \
+    && aws s3 cp "s3://${app_bundle_bucket}/app/${deployed_version}/opencode.json" /opt/opencode/opencode.json --region "${aws_region}" \
+    && aws s3 cp "s3://${app_bundle_bucket}/app/${deployed_version}/nono-profile.json" /opt/opencode/nono-profile.json --region "${aws_region}" \
+    && aws s3 cp "s3://${app_bundle_bucket}/app/${deployed_version}/nono-version.json" /opt/opencode/nono-version.json --region "${aws_region}" \
+    && aws s3 cp "s3://${app_bundle_bucket}/app/${deployed_version}/$NONO_TAR" "/opt/opencode/$NONO_TAR" --region "${aws_region}" \
+    && aws s3 cp "s3://${app_bundle_bucket}/app/${deployed_version}/host/app.sh" /opt/opencode/host/app.sh --region "${aws_region}" \
+    && aws s3 cp "s3://${app_bundle_bucket}/app/${deployed_version}/host/monitoring.sh" /opt/opencode/host/monitoring.sh --region "${aws_region}" \
     && break
   sleep 5
 done
