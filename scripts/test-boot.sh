@@ -20,6 +20,7 @@ printf 'OAUTH2_PROXY_CLIENT_SECRET=%s\n' "boot-test-client-secret" >> app.env
 printf 'OAUTH2_PROXY_COOKIE_SECRET=%s\n' "boot-test-cookie-secret-32b-min" >> app.env
 printf 'ANTHROPIC_API_KEY=%s\n' "boot-test-anthropic-key" >> app.env
 printf 'OPENAI_API_KEY=%s\n' "boot-test-openai-key" >> app.env
+printf 'OPENCODE_API_KEY=%s\n' "boot-test-opencode-key" >> app.env
 echo "blue" > .live-color
 SAMPLER_LOG="$(mktemp)"
 SAMPLER_PID=""
@@ -70,6 +71,8 @@ echo "==> Asserting backend password and provider keys are wired"
   || { echo "FAIL: ANTHROPIC_API_KEY not set in backend"; exit 1; }
 [ "$(docker compose exec -T opencode-blue printenv OPENAI_API_KEY)" = "boot-test-openai-key" ] \
   || { echo "FAIL: OPENAI_API_KEY not set in backend"; exit 1; }
+[ "$(docker compose exec -T opencode-blue printenv OPENCODE_API_KEY)" = "boot-test-opencode-key" ] \
+  || { echo "FAIL: OPENCODE_API_KEY not set in backend"; exit 1; }
 [ "$(docker compose exec -T opencode-blue test -f /root/.config/opencode/opencode.json)" ] \
   || { echo "FAIL: managed opencode.json not mounted"; exit 1; }
 echo "PASS: backend receives provider credentials through app.env and managed config is mounted"
