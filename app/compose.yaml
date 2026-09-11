@@ -1,6 +1,6 @@
 # Production app stack (ADR-0007, ADR-0015). Runs unmodified on the EC2 host
-# (/opt/opencode, app.env written by user_data) and locally via
-# `make test-boot` (app.env holds dummy values there).
+# (/opt/opencode, per-service env files written by user_data — ADR-0026) and
+# locally via `make test-boot` (env files hold dummy values there).
 # Images are pinned tag@digest; Dependabot (docker ecosystem) proposes bumps.
 #
 # Blue-green backends (ADR-0015): opencode-blue and opencode-green are
@@ -36,7 +36,7 @@ services:
       - caddy-config:/config
       - ./logs:/var/log/caddy
     env_file:
-      - app.env
+      - caddy.env
     depends_on:
       - opencode-blue
       - opencode-green
@@ -97,7 +97,7 @@ services:
     environment:
       BROWSER: "true"
     env_file:
-      - app.env
+      - opencode.env
 
   opencode-green:
     image: ghcr.io/anomalyco/opencode:1.18.30@sha256:412b37a894bb937a0d5d6a1860789b9fd7d34a109334bec98a3f6ecf812bb442
@@ -128,7 +128,7 @@ services:
     environment:
       BROWSER: "true"
     env_file:
-      - app.env
+      - opencode.env
 
   oauth2-proxy:
     image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.4@sha256:b1b2021fe8f4004573e8d690dec6c7bb29cc44364572cf8510a05bf3a0ae2ded
@@ -147,7 +147,7 @@ services:
     expose:
       - "4180"
     env_file:
-      - app.env
+      - oauth2.env
     environment:
       OAUTH2_PROXY_PROVIDER: github
       OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180

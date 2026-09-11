@@ -10,21 +10,22 @@ cd "$APP_DIR"
 
 DUMMY="boot-test-dummy"
 BASIC_DUMMY="$(printf 'opencode:%s' "$DUMMY" | base64 | tr -d '\n')"
-printf 'DOMAIN=%s\n' "localhost" > app.env
-printf 'OPENCODE_%s=%s\n' "SERVER_PASSWORD" "$DUMMY" >> app.env
-printf 'BASIC_AUTH=%s\n' "$BASIC_DUMMY" >> app.env
-printf 'OAUTH2_PROXY_CLIENT_ID=%s\n' "boot-test-client-id" >> app.env
-printf 'OAUTH2_PROXY_GITHUB_USERS=%s\n' "boot-test-user" >> app.env
-printf 'OAUTH2_PROXY_REDIRECT_URL=%s\n' "https://localhost/oauth2/callback" >> app.env
-printf 'OAUTH2_PROXY_CLIENT_SECRET=%s\n' "boot-test-client-secret" >> app.env
-printf 'OAUTH2_PROXY_COOKIE_SECRET=%s\n' "boot-test-cookie-secret-32b-min" >> app.env
-printf 'ANTHROPIC_API_KEY=%s\n' "boot-test-anthropic-key" >> app.env
-printf 'OPENAI_API_KEY=%s\n' "boot-test-openai-key" >> app.env
-printf 'OPENCODE_API_KEY=%s\n' "boot-test-opencode-key" >> app.env
+# Per-service env files (ADR-0026): each service receives only its own secrets.
+printf 'DOMAIN=%s\n'    "localhost"   > caddy.env
+printf 'BASIC_AUTH=%s\n' "$BASIC_DUMMY" >> caddy.env
+printf 'OAUTH2_PROXY_CLIENT_ID=%s\n'     "boot-test-client-id"             > oauth2.env
+printf 'OAUTH2_PROXY_CLIENT_SECRET=%s\n' "boot-test-client-secret"         >> oauth2.env
+printf 'OAUTH2_PROXY_COOKIE_SECRET=%s\n' "boot-test-cookie-secret-32b-min" >> oauth2.env
+printf 'OAUTH2_PROXY_GITHUB_USERS=%s\n'  "boot-test-user"                  >> oauth2.env
+printf 'OAUTH2_PROXY_REDIRECT_URL=%s\n'  "https://localhost/oauth2/callback" >> oauth2.env
+printf 'OPENCODE_%s=%s\n' "SERVER_PASSWORD" "$DUMMY"           > opencode.env
+printf 'ANTHROPIC_API_KEY=%s\n' "boot-test-anthropic-key"      >> opencode.env
+printf 'OPENAI_API_KEY=%s\n'    "boot-test-openai-key"         >> opencode.env
+printf 'OPENCODE_API_KEY=%s\n'  "boot-test-opencode-key"       >> opencode.env
 echo "blue" > .live-color
 SAMPLER_LOG="$(mktemp)"
 SAMPLER_PID=""
-trap 'kill "$SAMPLER_PID" 2>/dev/null || true; docker compose down -v >/dev/null 2>&1; rm -f app.env .live-color "$SAMPLER_LOG"' EXIT
+trap 'kill "$SAMPLER_PID" 2>/dev/null || true; docker compose down -v >/dev/null 2>&1; rm -f caddy.env oauth2.env opencode.env .live-color "$SAMPLER_LOG"' EXIT
 
 echo "==> Validating compose config"
 # Keep stderr visible so validation warnings surface in CI logs; only the
@@ -104,18 +105,29 @@ READY_BODY="$(curl -sk --max-time 10 https://localhost/ready || true)"
 [ "$READY_BODY" = "ready" ] || { echo "FAIL: /ready body is '$READY_BODY', want 'ready'"; exit 1; }
 echo "PASS: public /ready answers 'ready' (a backend color answers behind the edge)"
 
-echo "==> Asserting backend password and provider keys are wired"
+echo "==> Asserting per-service env isolation (ADR-0026)"
 [ "$(docker compose exec -T opencode-blue printenv OPENCODE_SERVER_PASSWORD)" = "$DUMMY" ] \
-  || { echo "FAIL: OPENCODE_SERVER_PASSWORD not set in backend"; exit 1; }
+  || { echo "FAIL: OPENCODE_SERVER_PASSWORD not set in opencode-blue"; exit 1; }
 [ "$(docker compose exec -T opencode-blue printenv ANTHROPIC_API_KEY)" = "boot-test-anthropic-key" ] \
-  || { echo "FAIL: ANTHROPIC_API_KEY not set in backend"; exit 1; }
+  || { echo "FAIL: ANTHROPIC_API_KEY not set in opencode-blue"; exit 1; }
 [ "$(docker compose exec -T opencode-blue printenv OPENAI_API_KEY)" = "boot-test-openai-key" ] \
-  || { echo "FAIL: OPENAI_API_KEY not set in backend"; exit 1; }
+  || { echo "FAIL: OPENAI_API_KEY not set in opencode-blue"; exit 1; }
 [ "$(docker compose exec -T opencode-blue printenv OPENCODE_API_KEY)" = "boot-test-opencode-key" ] \
-  || { echo "FAIL: OPENCODE_API_KEY not set in backend"; exit 1; }
+  || { echo "FAIL: OPENCODE_API_KEY not set in opencode-blue"; exit 1; }
+# caddy only sees caddy.env — it must NOT have provider secrets
+if docker compose exec -T caddy printenv OPENCODE_SERVER_PASSWORD 2>/dev/null | grep -q .; then
+  echo "FAIL: OPENCODE_SERVER_PASSWORD leaked into caddy (env isolation broken)"; exit 1
+fi
+if docker compose exec -T caddy printenv ANTHROPIC_API_KEY 2>/dev/null | grep -q .; then
+  echo "FAIL: ANTHROPIC_API_KEY leaked into caddy (env isolation broken)"; exit 1
+fi
+[ "$(docker compose exec -T caddy printenv DOMAIN)" = "localhost" ] \
+  || { echo "FAIL: DOMAIN not set in caddy"; exit 1; }
+[ "$(docker compose exec -T caddy printenv BASIC_AUTH)" = "$BASIC_DUMMY" ] \
+  || { echo "FAIL: BASIC_AUTH not set in caddy"; exit 1; }
 [ "$(docker compose exec -T opencode-blue test -f /root/.config/opencode/opencode.json)" ] \
   || { echo "FAIL: managed opencode.json not mounted"; exit 1; }
-echo "PASS: backend receives provider credentials through app.env and managed config is mounted"
+echo "PASS: per-service env files deliver secrets only to the service that needs them; managed config is mounted"
 # No 2>/dev/null: adapt warnings must surface in the log; stdout still pipes
 # to grep so the JSON response remains quiet unless it proves the header.
 docker compose exec -T caddy caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile \

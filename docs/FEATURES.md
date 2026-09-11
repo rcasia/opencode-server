@@ -49,11 +49,17 @@ rule 10).
 - **Provider API credentials.** Provider API keys are operator-created
   SSM SecureStrings. Terraform stores only parameter names. The instance
   role can read only the configured provider parameters; boot fetches them
-  with shell tracing disabled into `/opt/opencode/app.env` (0600), and
+  with shell tracing disabled into `/opt/opencode/opencode.env` (0600), and
   OpenCode consumes them through `{env:...}` in the managed config.
   Empty/unset parameter names leave that provider without credentials.
   Rotation is runtime-only: update the SecureString and use the existing
   app restart/switch path; no key is written to git or Terraform state.
+- **Per-service secret isolation.** Secrets are split into three 0600 env
+  files written atomically by `refresh_secrets`: `caddy.env` (DOMAIN,
+  BASIC_AUTH), `oauth2.env` (GitHub OAuth client/cookie secrets), and
+  `opencode.env` (backend password + provider API keys). Each compose
+  service mounts only its own file, so provider keys never reach the Caddy
+  or oauth2-proxy containers (ADR-0026).
 - **Persistent state.** 10 GB encrypted EBS at `/var/lib/docker`:
   sessions, images, workspace, and certs survive replacement.
 - **Agent git identity.** The agent commits/pushes as the operator:
