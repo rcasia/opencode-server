@@ -99,7 +99,10 @@ rule 10).
   email protocol exposes no per-message status API); no
   success-after-probing correlation by design (issue #13).
 - **Host health.** Data-disk use above 80% and memory above 90% (15 min)
-  page via the same topic. Growth is bounded by construction: container
+  page via the same topic — metrics carry the InstanceId dimension and
+  missing data pages (a dead agent must not hide). System-check failure
+  auto-recovers to healthy hardware, instance-check failure reboots.
+  Growth is bounded by construction: container
   logs capped at the daemon (10 MB x3), Caddy access log rotated
   (10 MB x3), unused images pruned weekly (never volumes — state
   survives). Rationale: ADR-0019.
