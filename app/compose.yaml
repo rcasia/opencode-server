@@ -67,13 +67,7 @@ services:
     # NONO_BIN defaults to the host RPM install (/usr/bin/nono);
     # test-boot overrides it with a pinned Linux binary so Mac/CI
     # hosts mount identical container bytes.
-    # NOTE: this must be `entrypoint`, not `command` — the image bakes
-    # in `ENTRYPOINT ["opencode"]`, so `command` would run
-    # `opencode sh -c ...` (unknown subcommand, restart loop). A broken
-    # entrypoint here once shipped past the deploy-prod smoke gate,
-    # which only checks `/` (answered by the edge alone) and not
-    # `/ready` — hence the /ready gate in deploy-prod smoke too.
-    entrypoint: ["sh", "-c", "command -v git >/dev/null || { command -v apk >/dev/null && apk add -q --no-cache git || echo 'WARNING: no git and no apk; container git unavailable'; }; touch /root/.git-credentials && chmod 600 /root/.git-credentials && exec /usr/local/bin/nono run --profile /etc/nono/profile.json -- opencode web --hostname 0.0.0.0 --port 4096"]
+    command: ["sh", "-c", "command -v git >/dev/null || { command -v apk >/dev/null && apk add -q --no-cache git || echo 'WARNING: no git and no apk; container git unavailable'; }; touch /root/.git-credentials && chmod 600 /root/.git-credentials && exec /usr/local/bin/nono run --profile /etc/nono/profile.json -- opencode web --hostname 0.0.0.0 --port 4096"]
     restart: always
     stop_grace_period: 30s
     mem_limit: 512M
@@ -103,8 +97,7 @@ services:
     image: ghcr.io/anomalyco/opencode:1.18.30@sha256:412b37a894bb937a0d5d6a1860789b9fd7d34a109334bec98a3f6ecf812bb442
     # Same sandbox wrapping as opencode-blue (nono profile, docker.sock
     # cut, git installed at container start — see comment above).
-    # `entrypoint`, not `command`: the image ENTRYPOINT is ["opencode"].
-    entrypoint: ["sh", "-c", "command -v git >/dev/null || { command -v apk >/dev/null && apk add -q --no-cache git || echo 'WARNING: no git and no apk; container git unavailable'; }; touch /root/.git-credentials && chmod 600 /root/.git-credentials && exec /usr/local/bin/nono run --profile /etc/nono/profile.json -- opencode web --hostname 0.0.0.0 --port 4096"]
+    command: ["sh", "-c", "command -v git >/dev/null || { command -v apk >/dev/null && apk add -q --no-cache git || echo 'WARNING: no git and no apk; container git unavailable'; }; touch /root/.git-credentials && chmod 600 /root/.git-credentials && exec /usr/local/bin/nono run --profile /etc/nono/profile.json -- opencode web --hostname 0.0.0.0 --port 4096"]
     restart: always
     stop_grace_period: 30s
     mem_limit: 512M
