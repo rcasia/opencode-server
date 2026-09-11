@@ -282,11 +282,15 @@ echo "PASS: all services restart=always, caddy healthy, oauth2-proxy running, gr
 
 echo "==> Rehearsing zero-downtime switch (blue -> green via switch.sh)"
 sampler() {
+  # 12s timeout mirrors Caddy's 10s retry budget: mid-failover the
+  # edge retries the dead color before answering from the live one,
+  # so a sample slower than 3s is seamless-by-design, not a failure.
+  # Only a sample that fails past the whole retry budget counts.
   while true; do
     TS="$(date +%T)"
-    BODY="$(curl -sk --max-time 3 https://localhost/ready || echo CURL-FAIL)"
+    BODY="$(curl -sk --max-time 12 https://localhost/ready || echo CURL-FAIL)"
     [ "$BODY" = "ready" ] || echo "$TS ready='$BODY'" >>"$SAMPLER_LOG"
-    ROOT="$(curl -sk -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 3 https://localhost/ || echo CURL-FAIL)"
+    ROOT="$(curl -sk -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 12 https://localhost/ || echo CURL-FAIL)"
     case "$ROOT" in 302*oauth2*) ;; *) echo "$TS root='$ROOT'" >>"$SAMPLER_LOG";; esac
     sleep 0.2
   done
