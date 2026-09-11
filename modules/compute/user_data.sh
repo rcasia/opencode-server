@@ -12,8 +12,11 @@ done
 for _ in $(seq 1 60); do
   [ -n "$DATA_DEV" ] && break
   sleep 5
+  for _dev in /dev/disk/by-id/*; do
+    case "$(basename "$_dev")" in *"$VOL_SFX"*) DATA_DEV="$(basename "$_dev")"; break;; esac
+  done
 done
-test -n "$DATA_DEV" || { echo "data volume never appeared"; exit 1; }
+[ -n "$DATA_DEV" ] || { echo "data volume ${data_volume_id} never attached"; exit 1; }
 DEVICE="/dev/disk/by-id/$DATA_DEV"
 blkid "$DEVICE" >/dev/null 2>&1 || mkfs -t ext4 "$DEVICE"
 UUID=$(blkid -s UUID -o value "$DEVICE")
@@ -24,26 +27,12 @@ mount -a
 systemctl enable --now docker
 usermod -aG docker ec2-user || true
 
-# AWS CLI v2 (SSM password fetch below). Downloaded over TLS from AWS's
-# canonical install URL (no versioned artifact exists that stays current).
-# No checksum to verify against: AWS publishes GPG .sig files but no
-# sha256, and automating GPG at boot would embed a rotating public key
-# whose rotation would brick unattended boots — so TLS plus fail-loud
-# unzip/install is the deliberate trade-off (ADR-0003).
 curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
 unzip -q -o /tmp/awscliv2.zip -d /tmp
 /tmp/aws/install --update 2>/dev/null || /tmp/aws/install
 rm -rf /tmp/aws /tmp/awscliv2.zip
 
-# Docker Compose plugin: dnf first, pinned GitHub fallback for the host
-# arch. The fallback stays because AL2023 repos are not guaranteed to
-# carry docker-compose-plugin on every AMI revision — but it never tracks
-# `latest`: COMPOSE_VERSION and the per-arch sha256 below bump together as
-# one reviewed change (hashes are the release's published .sha256 assets).
 dnf install -y docker-compose-plugin || {
-  # Bare $VAR (no braces): templatefile only interpolates dollar-brace
-  # sequences, so these pass through untouched, and shellcheck tracks
-  # them normally.
   COMPOSE_VERSION="v5.5.1"
   ARCH=$(uname -m)
   case "$ARCH" in
@@ -91,7 +80,7 @@ printf 'OAUTH2_PROXY_REDIRECT_URL=https://%s/oauth2/callback\n' "${domain_name}"
 VALUE=$(aws ssm get-parameter --name "${opencode_password_parameter}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
 printf 'OPENCODE_SERVER_PASSWORD=%s\n' "$VALUE" >> "$TMP"
 BASIC=$(printf 'opencode:%s' "$VALUE" | base64 | tr -d '\n')
-printf 'BASIC_AUTH=%s\n' "$BASIC" >> "$TMP"
+printf 'BASIC_AUTH=%s\n' "$BASIC" >> "$TMP" # pragma: allowlist secret -- derived from an SSM secret at runtime
 unset VALUE BASIC
 OAUTH_SECRET=$(aws ssm get-parameter --name "${github_oauth_secret_parameter}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
 printf 'OAUTH2_PROXY_CLIENT_SECRET=%s\n' "$OAUTH_SECRET" >> "$TMP"
@@ -144,3 +133,29 @@ cat > /etc/systemd/system/opencode-colors.service <<'UNIT_EOF'
 Description=Reconcile opencode blue-green colors after boot
 After=docker.service
 Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/opencode/switch.sh reconcile
+
+[Install]
+WantedBy=multi-user.target
+UNIT_EOF
+systemctl daemon-reload
+systemctl enable opencode-colors.service
+
+systemctl enable --now rsyslog
+cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<CW_EOF
+{
+  "agent": { "metrics_collection_interval": 60, "run_as_user": "root" },
+  "logs": { "logs_collected": { "files": { "collect_list": [
+    { "file_path": "/opt/opencode/logs/access.log", "log_group_name": "${name_prefix}-caddy", "log_stream_name": "{instance_id}" },
+    { "file_path": "/var/log/secure", "log_group_name": "${name_prefix}-secure", "log_stream_name": "{instance_id}" },
+    { "file_path": "/var/log/cloud-init-output.log", "log_group_name": "${name_prefix}-boot", "log_stream_name": "{instance_id}" },
+    { "file_path": "/var/lib/docker/containers/*/*.log", "log_group_name": "${name_prefix}-containers", "log_stream_name": "{instance_id}" }
+  ] } } }
+CW_EOF
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json \
+  || echo "WARNING: cloudwatch agent config failed; continuing without log shipping" >&2
+
+echo 'echo "opencode web ready on https://'"${domain_name}"' (Caddy + compose in /opt/opencode)"' > /etc/profile.d/opencode.sh
