@@ -55,8 +55,12 @@ services:
     # docker builds move out of the sandbox (the socket is host-root).
     # The pinned image is Alpine without git (issue #35): install it at
     # container start, before the sandbox applies, so agent git and the
-    # boot git-setup work. Skipped safely when git exists or apk is
-    # absent (boot then takes the existing git-setup WARNING path).
+    # boot git-setup work. Skipped safely when apk is absent (boot then
+    # takes the existing git-setup WARNING path).
+    # The nono binary is the musl build (./nono-container, from the S3
+    # bundle at boot): the glibc build cannot exec on musl (missing ELF
+    # interpreter; gcompat lacks __res_init). Upstream ships musl for
+    # x86_64 only.
     # The touch pre-creates /root/.git-credentials so the profile's
     # single-file grant resolves at sandbox start (nono skips
     # bypass_protection entries that do not exist yet); later writes
@@ -64,16 +68,19 @@ services:
     # for nono's seccomp network-proxy handoff inside Docker (see
     # nono troubleshooting "Running Inside Docker/Podman"); it only
     # lets nono's parent duplicate an fd from its own child.
-    # NONO_BIN defaults to the host RPM install (/usr/bin/nono);
-    # test-boot overrides it with a pinned Linux binary so Mac/CI
-    # hosts mount identical container bytes.
+    # ./nono-container is the musl binary: fetched from the S3 bundle
+    # at boot (/opt/opencode) and by test-boot locally ($APP_DIR).
+    # Never the host glibc binary — it cannot exec on musl.
     # NOTE: this must be `entrypoint`, not `command` — the image bakes
     # in `ENTRYPOINT ["opencode"]`, so `command` would run
     # `opencode sh -c ...` (unknown subcommand, restart loop). A broken
     # entrypoint here once shipped past the deploy-prod smoke gate,
     # which only checks `/` (answered by the edge alone) and not
     # `/ready` — hence the /ready gate in deploy-prod smoke too.
-    entrypoint: ["sh", "-c", "command -v git >/dev/null || { command -v apk >/dev/null && apk add -q --no-cache git || echo 'WARNING: no git and no apk; container git unavailable'; }; touch /root/.git-credentials && chmod 600 /root/.git-credentials && exec /usr/local/bin/nono run --profile /etc/nono/profile.json -- opencode web --hostname 0.0.0.0 --port 4096"]
+    # `--allow-cwd` is load-bearing: nono skips the CWD prompt when
+    # non-interactive, so without it the profile's workdir grant never
+    # applies and the agent has no workspace.
+    entrypoint: ["sh", "-c", "command -v apk >/dev/null && apk add -q --no-cache git || echo 'WARNING: no apk; container git unavailable'; touch /root/.git-credentials && chmod 600 /root/.git-credentials && exec /usr/local/bin/nono run --allow-cwd --profile /etc/nono/profile.json -- opencode web --hostname 0.0.0.0 --port 4096"]
     restart: always
     stop_grace_period: 30s
     mem_limit: 512M
@@ -92,7 +99,7 @@ services:
       - opencode-workspace:/root
       - ./opencode.json:/root/.config/opencode/opencode.json:ro
       - ./nono-profile.json:/etc/nono/profile.json:ro
-      - ${NONO_BIN:-/usr/bin/nono}:/usr/local/bin/nono:ro
+      - ./nono-container:/usr/local/bin/nono:ro
       - opencode-data:/root/.local/share/opencode
     environment:
       BROWSER: "true"
@@ -104,7 +111,7 @@ services:
     # Same sandbox wrapping as opencode-blue (nono profile, docker.sock
     # cut, git installed at container start — see comment above).
     # `entrypoint`, not `command`: the image ENTRYPOINT is ["opencode"].
-    entrypoint: ["sh", "-c", "command -v git >/dev/null || { command -v apk >/dev/null && apk add -q --no-cache git || echo 'WARNING: no git and no apk; container git unavailable'; }; touch /root/.git-credentials && chmod 600 /root/.git-credentials && exec /usr/local/bin/nono run --profile /etc/nono/profile.json -- opencode web --hostname 0.0.0.0 --port 4096"]
+    entrypoint: ["sh", "-c", "command -v apk >/dev/null && apk add -q --no-cache git || echo 'WARNING: no apk; container git unavailable'; touch /root/.git-credentials && chmod 600 /root/.git-credentials && exec /usr/local/bin/nono run --allow-cwd --profile /etc/nono/profile.json -- opencode web --hostname 0.0.0.0 --port 4096"]
     restart: always
     stop_grace_period: 30s
     mem_limit: 512M
@@ -123,7 +130,7 @@ services:
       - opencode-workspace:/root
       - ./opencode.json:/root/.config/opencode/opencode.json:ro
       - ./nono-profile.json:/etc/nono/profile.json:ro
-      - ${NONO_BIN:-/usr/bin/nono}:/usr/local/bin/nono:ro
+      - ./nono-container:/usr/local/bin/nono:ro
       - opencode-data:/root/.local/share/opencode
     environment:
       BROWSER: "true"
