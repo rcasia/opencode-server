@@ -4,7 +4,7 @@ variable "name_prefix" {
 }
 
 variable "ami_id" {
-  description = "AMI ID for the server"
+  description = "AMI ID for the instance"
   type        = string
 }
 
@@ -60,7 +60,7 @@ variable "github_token_parameter" {
 }
 
 variable "app_bundle_bucket" {
-  description = "S3 bucket holding the app bundle (compose.yaml, Caddyfile)"
+  description = "S3 bucket holding the app bundle (compose.yaml, Caddyfile, switch.sh, opencode.json)"
   type        = string
 }
 
@@ -83,7 +83,7 @@ variable "root_volume_size" {
 }
 
 variable "aws_region" {
-  description = "AWS region (used to fetch the opencode password from SSM)"
+  description = "AWS region (used to fetch secrets from SSM)"
   type        = string
 }
 
@@ -112,9 +112,15 @@ variable "github_oauth_secret_parameter" {
 }
 
 variable "oauth_cookie_secret_parameter" {
-  description = "SSM SecureString parameter holding the oauth2-proxy cookie secret"
+  description = "SSM SecureString parameter holding the oauth2-proxy cookie secret (32-byte base64url)"
   type        = string
   default     = "/opencode/oauth-cookie-secret"
+}
+
+variable "provider_api_key_parameters" {
+  description = "Map of OpenCode env var names to SSM SecureString parameter names. Empty values disable that provider."
+  type        = map(string)
+  default     = {}
 }
 
 variable "domain_name" {

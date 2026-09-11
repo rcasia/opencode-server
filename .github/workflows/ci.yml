@@ -1,19 +1,5 @@
 # ci — commit checks plus automatic prod deploy, one workflow graph.
 # Runs on every push to main and every PR.
-# Jobs: changes (paths-filter) -> pre-commit always, terraform + local only
-#   when infra/pipeline files changed, then bootstrap (main pushes only,
-#   needs green-or-skipped checks): OIDC -> S3 init -> adopt imports ->
-#   plan -> apply (only when the plan has changes). Then deploy-prod (same
-#   gate, needs bootstrap): OIDC -> S3 init -> plan -> apply (only when the
-#   plan has changes) -> smoke test. Then deploy-app for app-only changes
-#   (bundle upload + blue-green switch via switch.sh over SSM + smoke).
-#   PR runs skip bootstrap/deploy-prod/deploy-app (no secrets on PRs, never
-#   deploy). Docs-only pushes skip the slow jobs. All gates fail open:
-#   if the filter job breaks, everything runs.
-# Requirements: AWS_ROLE_ARN secret + TF_STATE_BUCKET variable, else the
-#   deploy job fails red. Optional: ALERT_EMAIL secret (intrusion alarm
-#   recipient, masked in logs; absent = alarms exist but email no one). Rollback: revert on
-#   main and push; next green run re-applies (state versioned in S3).
 name: ci
 
 on:
@@ -52,6 +38,7 @@ jobs:
               - 'app/compose.yaml'
               - 'app/Caddyfile'
               - 'app/switch.sh'
+              - 'app/opencode.json'
             pipeline:
               - '.github/**'
               - 'Makefile'
@@ -77,7 +64,6 @@ jobs:
 
   terraform:
     needs: [changes]
-    # Fail open: run unless the filter positively says docs-only.
     if: always() && (needs.changes.result != 'success' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.pipeline == 'true')
     runs-on: ubuntu-latest
     defaults:
@@ -85,24 +71,19 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: "1.13.3"
           terraform_wrapper: false
-
       - name: Terraform fmt check
         run: terraform fmt -check -recursive
-
       - name: Terraform init (backend disabled for CI)
         run: terraform init -backend=false -input=false
-
       - name: Terraform validate
         run: terraform validate
 
   local:
     needs: [changes]
-    # Fail open: run unless the filter positively says docs-only.
     if: always() && (needs.changes.result != 'success' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.pipeline == 'true')
     runs-on: ubuntu-latest
     permissions:
@@ -112,53 +93,36 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: "1.13.3"
           terraform_wrapper: false
-
       - name: Start moto server
         run: |
-          # Pinned tag@digest per ADR-0003; keep in sync with root compose.yaml.
           docker run -d --name moto -p 5000:5000 -e MOTO_IAM_LOAD_MANAGED_POLICIES=true motoserver/moto:5.2.3@sha256:91fd602a21f49cf9eb82fdf474015a3c131d40104c8297ea6a2ca920708ae32c
           for _ in $(seq 1 30); do
-            if curl -sf http://localhost:5000/moto-api/ >/dev/null; then
-              break
-            fi
+            if curl -sf http://localhost:5000/moto-api/ >/dev/null; then break; fi
             sleep 2
           done
-
       - name: Create local state bucket
         env:
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
         run: aws --endpoint-url=http://localhost:5000 --region eu-west-1 s3 mb s3://opencode-local-tfstate
-
       - name: Terraform init (moto backend)
         run: terraform init -reconfigure -backend-config=environments/local.backend.hcl -input=false
-
       - name: Terraform validate
         run: terraform validate
-
       - name: Terraform plan (moto, no AWS credentials)
         run: terraform plan -var-file=environments/local.tfvars -input=false
-
-      - name: Terraform apply (moto throwaway, compute only — Moto's
-          CloudWatch mock rejects PutMetricAlarm, so monitoring is plan-only)
+      - name: Terraform apply (moto throwaway, compute only)
         run: terraform apply -target=module.compute -var-file=environments/local.tfvars -input=false -auto-approve
-
       - name: Idempotence check (second plan on non-empty state must be empty)
         run: |
           terraform plan -target=module.compute -var-file=environments/local.tfvars -input=false -detailed-exitcode || exitcode=$?
           if [ "${exitcode:-0}" != "0" ]; then echo "non-idempotent plan on existing state"; exit 1; fi
 
   bootstrap:
-    # Pipeline-managed deploy trust (ADR-0013): bootstrap/ owns the OIDC
-    # provider + deploy role + policy and applies itself AS the role —
-    # never from a laptop. First run adopts the manual role/provider/bucket
-    # via imports, then deletes the one-time bridge policy, leaving only
-    # the TF-managed policy on the role.
     needs: [pre-commit, terraform, local, changes]
     if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.changes.result != 'success' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.pipeline == 'true') && needs.pre-commit.result == 'success' && (needs.terraform.result == 'success' || needs.terraform.result == 'skipped') && (needs.local.result == 'success' || needs.local.result == 'skipped')
     runs-on: ubuntu-latest
@@ -178,18 +142,15 @@ jobs:
       TF_STATE_KEY: opencode-server/bootstrap/terraform.tfstate
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: "1.13.3"
           terraform_wrapper: false
-
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-
       - name: Terraform init (S3 backend)
         run: |
           terraform init -input=false \
@@ -198,7 +159,6 @@ jobs:
             -backend-config="region=${{ env.AWS_REGION }}" \
             -backend-config="encrypt=true" \
             -backend-config="use_lockfile=true"
-
       - name: Adopt manual resources (one-time imports, idempotent)
         run: |
           terraform import aws_s3_bucket.state "${{ vars.TF_STATE_BUCKET }}" || true
@@ -208,10 +168,8 @@ jobs:
           terraform import aws_iam_role.deploy opencode-server-deploy || true
           ACCT="$(aws sts get-caller-identity --query Account --output text)"
           terraform import aws_iam_openid_connect_provider.github "arn:aws:iam::$ACCT:oidc-provider/token.actions.githubusercontent.com" || true
-
       - name: Terraform validate
         run: terraform validate
-
       - name: Terraform plan
         id: plan
         run: |
@@ -219,11 +177,9 @@ jobs:
           exitcode=${exitcode:-0}
           echo "exitcode=$exitcode" >> "$GITHUB_OUTPUT"
           if [ "$exitcode" -eq 1 ]; then exit 1; fi
-
       - name: Terraform apply
         if: steps.plan.outputs.exitcode == '2'
         run: terraform apply -input=false tfplan
-
       - name: Remove bridge policy (TF-managed policy now covers everything)
         if: steps.plan.outputs.exitcode == '2'
         run: aws iam delete-role-policy --role-name opencode-server-deploy --policy-name bridge || true
@@ -248,18 +204,15 @@ jobs:
       TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: "1.13.3"
           terraform_wrapper: false
-
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-
       - name: Terraform init (S3 backend)
         run: |
           terraform init -input=false \
@@ -268,18 +221,16 @@ jobs:
             -backend-config="region=${{ env.AWS_REGION }}" \
             -backend-config="encrypt=true" \
             -backend-config="use_lockfile=true"
-
-      - name: Upload app bundle (S3, versioned — boots and blue-green switches read it)
+      - name: Upload app bundle (S3, versioned)
         run: |
           BUCKET="$(terraform output -raw app_bundle_bucket 2>/dev/null || true)"
           if [ -z "$BUCKET" ] || ! aws s3api head-bucket --bucket "$BUCKET" --region "${{ env.AWS_REGION }}" 2>/dev/null; then echo "no bundle bucket yet, skipping"; exit 0; fi
           aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/switch.sh "s3://$BUCKET/app/switch.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
-
+          aws s3 cp app/opencode.json "s3://$BUCKET/app/opencode.json" --sse AES256 --region "${{ env.AWS_REGION }}"
       - name: Terraform validate
         run: terraform validate
-
       - name: Terraform plan
         id: plan
         run: |
@@ -287,7 +238,6 @@ jobs:
           exitcode=${exitcode:-0}
           echo "exitcode=$exitcode" >> "$GITHUB_OUTPUT"
           if [ "$exitcode" -eq 1 ]; then exit 1; fi
-
       - name: Upload plan (audit)
         if: steps.plan.outputs.exitcode == '2'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -295,24 +245,20 @@ jobs:
           name: tfplan-prod
           path: tfplan
           retention-days: 30
-
       - name: No changes to apply
         if: steps.plan.outputs.exitcode == '0'
         run: echo "Plan is empty — skipping apply and smoke test."
-
       - name: Terraform apply
         if: steps.plan.outputs.exitcode == '2'
         run: terraform apply -input=false tfplan
-
-      - name: Upload app bundle again (covers bucket-creating applies;
-          boots fetch it with retries)
+      - name: Upload app bundle again (covers bucket-creating applies)
         if: steps.plan.outputs.exitcode == '2'
         run: |
           BUCKET="$(terraform output -raw app_bundle_bucket)"
           aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/switch.sh "s3://$BUCKET/app/switch.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
-
+          aws s3 cp app/opencode.json "s3://$BUCKET/app/opencode.json" --sse AES256 --region "${{ env.AWS_REGION }}"
       - name: Smoke test (site answers through TLS + SSO gate)
         if: steps.plan.outputs.exitcode == '2'
         run: |
@@ -329,17 +275,12 @@ jobs:
             sleep 20
           done
           echo "site never returned the SSO gate (last: $RESP)"; exit 1
-
       - name: Boot diagnostics (only when apply ran and something above failed)
         if: failure() && steps.plan.outputs.exitcode == '2'
         run: |
           IID="$(terraform output -raw instance_id)"
-          echo "dumping boot state from $IID via SSM (best effort; keeps the red verdict)"
-          CMD_ID="$(aws ssm send-command --instance-ids "$IID" \
-            --document-name "AWS-RunShellScript" \
-            --parameters "commands=[\"tail -n 80 /var/log/cloud-init-output.log\", \"systemctl is-active docker || true\", \"docker compose -f /opt/opencode/compose.yaml ps || true\"]" \
-            --query "Command.CommandId" --output text 2>/dev/null || true)"
-          if [ -z "$CMD_ID" ]; then echo "SSM send-command failed (instance not SSM-registered yet?)"; exit 1; fi
+          CMD_ID="$(aws ssm send-command --instance-ids "$IID" --document-name "AWS-RunShellScript" --parameters "commands=[\"tail -n 80 /var/log/cloud-init-output.log\", \"systemctl is-active docker || true\", \"docker compose -f /opt/opencode/compose.yaml ps || true\"]" --query "Command.CommandId" --output text 2>/dev/null || true)"
+          if [ -z "$CMD_ID" ]; then echo "SSM send-command failed"; exit 1; fi
           for _ in $(seq 1 24); do
             STATUS="$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query Status --output text 2>/dev/null || echo Pending)"
             [ "$STATUS" = "Success" ] && break
@@ -351,10 +292,6 @@ jobs:
 
   deploy-app:
     needs: [pre-commit, deploy-prod, changes]
-    # App-file changes only (infra changes already redeployed via deploy-prod,
-    # whose fresh boot pulls the bundle). A skipped deploy-prod (app-only
-    # push) satisfies the gate like a success; a failed one still blocks.
-    # Fail open like every other gate.
     if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.pre-commit.result == 'success' && (needs.deploy-prod.result == 'success' || needs.deploy-prod.result == 'skipped') && (needs.changes.result != 'success' || (needs.changes.outputs.app == 'true' && needs.changes.outputs.infra != 'true'))
     runs-on: ubuntu-latest
     environment: prod
@@ -372,18 +309,15 @@ jobs:
       TF_STATE_KEY: opencode-server/prod/terraform.tfstate
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: "1.13.3"
           terraform_wrapper: false
-
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-
       - name: Terraform init (S3 backend, for outputs)
         run: |
           terraform init -input=false \
@@ -392,28 +326,18 @@ jobs:
             -backend-config="region=${{ env.AWS_REGION }}" \
             -backend-config="encrypt=true" \
             -backend-config="use_lockfile=true"
-
-      - name: Upload app bundle (app-only pushes skip deploy-prod, so no
-          other job uploads — without this the host would switch to the
-          previous bundle)
+      - name: Upload app bundle
         run: |
           BUCKET="$(terraform output -raw app_bundle_bucket)"
           aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/switch.sh "s3://$BUCKET/app/switch.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
-
-      - name: Blue-green switch via SSM (idle color up + /ready-gated,
-          live untouched until the idle answers — no failed requests)
-        id: restart
+          aws s3 cp app/opencode.json "s3://$BUCKET/app/opencode.json" --sse AES256 --region "${{ env.AWS_REGION }}"
+      - name: Blue-green switch via SSM
         run: |
           IID="$(terraform output -raw instance_id)"
           BUCKET="$(terraform output -raw app_bundle_bucket)"
-          echo "instance=$IID" >> "$GITHUB_OUTPUT"
-          CMD_ID="$(aws ssm send-command --instance-ids "$IID" \
-            --document-name "AWS-RunShellScript" \
-            --parameters "commands=[\"cd /opt/opencode && aws s3 cp s3://$BUCKET/app/compose.yaml compose.yaml --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/Caddyfile Caddyfile --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/switch.sh switch.sh --region ${{ env.AWS_REGION }} && chmod +x switch.sh && ./switch.sh deploy && (/usr/local/bin/opencode-git-setup.sh || echo 'WARNING: git setup failed (non-blocking)')\"]" \
-            --query "Command.CommandId" --output text)"
-          echo "command=$CMD_ID" >> "$GITHUB_OUTPUT"
+          CMD_ID="$(aws ssm send-command --instance-ids "$IID" --document-name "AWS-RunShellScript" --parameters "commands=[\"cd /opt/opencode && aws s3 cp s3://$BUCKET/app/compose.yaml compose.yaml --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/Caddyfile Caddyfile --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/switch.sh switch.sh --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/opencode.json opencode.json --region ${{ env.AWS_REGION }} && chmod +x switch.sh && ./switch.sh deploy && (/usr/local/bin/opencode-git-setup.sh || echo 'WARNING: git setup failed (non-blocking)')\"]" --query "Command.CommandId" --output text)"
           for _ in $(seq 1 60); do
             STATUS="$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query Status --output text 2>/dev/null || echo Pending)"
             echo "ssm status: $STATUS"
@@ -422,8 +346,7 @@ jobs:
             sleep 5
           done
           [ "$STATUS" = "Success" ]
-
-      - name: Smoke test (readiness gate + site answers through TLS + SSO gate)
+      - name: Smoke test
         run: |
           URL="$(terraform output -raw opencode_url)"
           case "$URL" in https://*) ;; *) echo "no public URL ($URL), skipping HTTP check"; exit 0;; esac

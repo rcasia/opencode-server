@@ -25,6 +25,7 @@ module "compute" {
   github_oauth_user             = var.github_oauth_user
   github_oauth_secret_parameter = var.github_oauth_secret_parameter
   oauth_cookie_secret_parameter = var.oauth_cookie_secret_parameter
+  provider_api_key_parameters   = var.provider_api_key_parameters
   domain_name                   = var.domain_name
   git_user_name                 = var.git_user_name
   git_user_email                = var.git_user_email

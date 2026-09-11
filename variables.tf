@@ -99,6 +99,21 @@ variable "oauth_cookie_secret_parameter" {
   default     = "/opencode/oauth-cookie-secret"
 }
 
+variable "provider_api_key_parameters" {
+  description = "Map of OpenCode env var names to SSM SecureString parameter names. Empty values disable that provider."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for env_name, parameter_name in var.provider_api_key_parameters :
+      can(regex("^[A-Z][A-Z0-9_]*$", env_name)) &&
+      (parameter_name == "" || can(regex("^/[A-Za-z0-9._/-]+$", parameter_name)))
+    ])
+    error_message = "Provider env names must be uppercase environment-variable names and SSM parameter names must be empty or slash-prefixed."
+  }
+}
+
 variable "alert_email" {
   description = "Email for intrusion alarms. Empty disables the email subscription."
   type        = string
@@ -131,9 +146,8 @@ variable "github_token_parameter" {
 
 variable "domain_name" {
   description = "Public domain for opencode web (Caddy automatic TLS). Empty skips Caddy config."
-
-  type    = string
-  default = ""
+  type        = string
+  default     = ""
 
   validation {
     condition     = var.domain_name == "" || can(regex("^[a-z0-9.-]+$", var.domain_name))
