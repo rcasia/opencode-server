@@ -59,6 +59,28 @@ resource "aws_iam_role_policy" "oauth_secrets" {
   policy = data.aws_iam_policy_document.oauth_secrets.json
 }
 
+# Provider credentials follow the same discipline: Terraform carries only
+# parameter names, never secret values. Empty names disable that provider.
+data "aws_iam_policy_document" "provider_api_keys" {
+  count = length([for p in values(var.provider_api_key_parameters) : p if p != ""]) > 0 ? 1 : 0
+
+  statement {
+    actions = ["ssm:GetParameter"]
+    resources = [
+      for parameter_name in values(var.provider_api_key_parameters) :
+      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${parameter_name}"
+      if parameter_name != ""
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "provider_api_keys" {
+  count  = length([for p in values(var.provider_api_key_parameters) : p if p != ""]) > 0 ? 1 : 0
+  name   = "${var.name_prefix}-provider-api-keys"
+  role   = aws_iam_role.server.name
+  policy = data.aws_iam_policy_document.provider_api_keys[0].json
+}
+
 # The boot git helper (and deploy-app re-apply) fetches the GitHub PAT
 # from this param at runtime — without it, git auth silently stays unset.
 data "aws_iam_policy_document" "github_token" {
@@ -120,6 +142,7 @@ resource "aws_instance" "server" {
     github_oauth_user             = var.github_oauth_user
     github_oauth_secret_parameter = var.github_oauth_secret_parameter
     oauth_cookie_secret_parameter = var.oauth_cookie_secret_parameter
+    provider_api_key_parameters   = var.provider_api_key_parameters
     domain_name                   = var.domain_name
     data_volume_id                = aws_ebs_volume.data.id
     git_user_name                 = var.git_user_name
