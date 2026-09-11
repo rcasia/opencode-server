@@ -24,7 +24,18 @@ printf 'OPENCODE_API_KEY=%s\n' "boot-test-opencode-key" >> app.env
 echo "blue" > .live-color
 SAMPLER_LOG="$(mktemp)"
 SAMPLER_PID=""
-trap 'kill "$SAMPLER_PID" 2>/dev/null || true; docker compose down -v >/dev/null 2>&1; rm -f app.env .live-color compose.override.yaml "$SAMPLER_LOG"' EXIT
+teardown() {
+  _rc=$?
+  # Every failure path dumps first: explicit `exit 1` assertions skip
+  # the ERR trap, so the EXIT trap carries the dump. Backend logs are
+  # the only record of a sandbox that crash-loops, and `compose down
+  # -v` below deletes them.
+  [ "$_rc" -ne 0 ] && dump_backend_state
+  kill "$SAMPLER_PID" 2>/dev/null || true
+  docker compose down -v >/dev/null 2>&1
+  rm -f app.env .live-color compose.override.yaml "$SAMPLER_LOG"
+}
+trap 'teardown' EXIT
 # Dump backend state before the EXIT trap tears the stack down: a
 # sandbox that crash-loops leaves its reason only in container logs,
 # and `compose down -v` deletes them.
@@ -32,6 +43,7 @@ dump_backend_state() {
   echo "==> FAILURE: backend state"
   docker compose ps || true
   docker compose logs --no-color --tail 200 opencode-blue opencode-green 2>&1 || true
+  docker compose logs --no-color --tail 60 caddy 2>&1 || true
 }
 trap 'dump_backend_state' ERR
 
