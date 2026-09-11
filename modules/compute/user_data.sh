@@ -43,7 +43,15 @@ cat > /etc/docker/daemon.json <<'DOCKER_EOF'
 DOCKER_EOF
 systemctl restart docker
 
+# Pinned AWS CLI (issue #12): AWS publishes no versioned v2 URL, so the
+# zip is floating — verify it against the hash recorded when this line
+# was last bumped (2026-09-11). Refresh procedure: re-download, update
+# EXPECTED_AWS_SHA256, boot once. A mismatch fails boot closed (exit 1)
+# before anything executes as root — never silently run new bytes.
+EXPECTED_AWS_SHA256="617845f42577b8c1deba29eb5195ced529ee98241ccf4dad922745a287722af4" # pragma: allowlist secret -- pinned release hash, not a credential
 curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+ACTUAL_AWS_SHA256=$(sha256sum /tmp/awscliv2.zip | cut -d ' ' -f 1)
+[ "$ACTUAL_AWS_SHA256" = "$EXPECTED_AWS_SHA256" ] || { echo "awscli checksum mismatch"; exit 1; }
 unzip -q -o /tmp/awscliv2.zip -d /tmp
 /tmp/aws/install --update 2>/dev/null || /tmp/aws/install
 rm -rf /tmp/aws /tmp/awscliv2.zip
