@@ -352,8 +352,10 @@ jobs:
   deploy-app:
     needs: [pre-commit, deploy-prod, changes]
     # App-file changes only (infra changes already redeployed via deploy-prod,
-    # whose fresh boot pulls the bundle). Fail open like every other gate.
-    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.pre-commit.result == 'success' && needs.deploy-prod.result == 'success' && (needs.changes.result != 'success' || (needs.changes.outputs.app == 'true' && needs.changes.outputs.infra != 'true'))
+    # whose fresh boot pulls the bundle). A skipped deploy-prod (app-only
+    # push) satisfies the gate like a success; a failed one still blocks.
+    # Fail open like every other gate.
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.pre-commit.result == 'success' && (needs.deploy-prod.result == 'success' || needs.deploy-prod.result == 'skipped') && (needs.changes.result != 'success' || (needs.changes.outputs.app == 'true' && needs.changes.outputs.infra != 'true'))
     runs-on: ubuntu-latest
     environment: prod
     concurrency:
