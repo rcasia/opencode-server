@@ -56,11 +56,6 @@ caddy_running() {
   docker compose ps --status running --services 2>/dev/null | grep -qx "caddy"
 }
 
-# Per-color readiness, checked FROM Caddy over the compose network (same
-# DNS + path the real traffic takes). Runs inside the caddy container so
-# BASIC_AUTH expands there — never on a host command line. Authed GET /
-# must come back 2xx: proves the color is up AND the machine-only backend
-# password is wired. Unauthed/container-down comes back nonzero.
 color_ready() {
   docker compose exec -T caddy \
     sh -c 'wget -q -O /dev/null --header "Authorization: Basic $BASIC_AUTH" http://opencode-'"$1"':4096/' \
@@ -79,8 +74,6 @@ wait_for_color() {
   return 1
 }
 
-# Aggregate readiness through the public edge: body must be exactly
-# "ready" (Caddy masks everything else).
 edge_ready() {
   [ "$(curl -sk --max-time 10 --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/ready" || true)" = "ready" ]
 }
@@ -115,7 +108,9 @@ cmd_deploy() {
   trap "restore_backups" INT TERM
 
   log "validating compose config"
-  docker compose config --quiet \
+  # Keep stderr visible so validation warnings surface in CI logs; only the
+  # verbose rendered config on stdout is discarded.
+  docker compose config >/dev/null \
     || {
       restore_backups
       fail "compose config invalid, nothing touched"
@@ -137,9 +132,6 @@ cmd_deploy() {
       fail "pull failed, nothing restarted"
     }
 
-  # One-time migration (ADR-0015): hosts booted before blue-green run a
-  # single `opencode` container the new compose no longer manages. The new
-  # live color is blue; the legacy container goes only after blue answers.
   PROJ="$(basename "$COMPOSE_DIR")"
   LEGACY="$PROJ-opencode-1"
   MIGRATE=0
@@ -161,10 +153,6 @@ cmd_deploy() {
   docker compose up -d --force-recreate --no-deps "opencode-$IDLE" \
     || fail "could not start opencode-$IDLE, live=$LIVE untouched"
 
-  # Cold edge (dead-host recovery): readiness is probed from inside the
-  # caddy container, so a host with no edge running (failed boot, fresh
-  # disk) must start it before the idle color can prove itself. Normal
-  # deploys skip this: caddy is already up.
   if ! caddy_running; then
     log "edge not running, cold-starting caddy + oauth2-proxy"
     docker compose up -d --no-deps caddy oauth2-proxy \
@@ -180,9 +168,6 @@ cmd_deploy() {
   trap - INT TERM
 
   if caddy_running && ! cmp -s Caddyfile Caddyfile.bak; then
-    # Skip the reload when the caddy image itself changed: the recreate
-    # below loads the new file in one step (one edge restart, documented
-    # in ADR-0015) instead of reload-then-restart.
     CONFIG_IMG="$(docker compose config --images 2>/dev/null | grep -m1 '^caddy ' | awk '{print $2}' || true)"
     RUNNING_IMG="$(docker inspect "$(docker compose ps -q caddy)" --format '{{.Config.Image}}' 2>/dev/null || true)"
     if [ -n "$CONFIG_IMG" ] && [ "$CONFIG_IMG" = "$RUNNING_IMG" ]; then
