@@ -73,6 +73,11 @@ rule 10).
   Provider keys extend this rule: Terraform receives only SSM parameter
   names and the instance role receives only the corresponding
   `ssm:GetParameter` permissions.
+- **Public-repo defaults.** Committed `prod.tfvars` carries no operator
+  PII: example domain, empty SSO/git identity (fail closed). Real values
+  arrive via Actions secrets (`TF_VAR_` wins). The OIDC deploy subject
+  keeps its numeric-ID form as a documented personal-repo exception —
+  the slug form does not match and locks the pipeline out.
 
 ## Sustain
 
