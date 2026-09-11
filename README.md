@@ -222,8 +222,8 @@ probing (≥3 failures in 5 min). Rationale:
 [`docs/adr/0006-intrusion-alerting.md`](docs/adr/0006-intrusion-alerting.md).
 Cost is cents per month (log ingestion + 2 alarms).
 
-Setup: set the `ALERT_EMAIL` Actions variable (repo Settings → Secrets
-and variables → Actions → Variables tab), push, then click the SNS
+Setup: set the `ALERT_EMAIL` Actions secret (repo Settings → Secrets
+and variables → Actions → Secrets tab, so the address is masked in logs), push, then click the SNS
 confirmation email (subscription stays `PendingConfirmation` until you do
 — no emails before that).
 
@@ -312,7 +312,7 @@ Steps:
 3. Console: attach the inline `bridge` policy from ADR-0013 to the role.
 4. Repo Settings → Secrets and variables → Actions: `AWS_ROLE_ARN`
    secret (the role ARN), `TF_STATE_BUCKET` variable (the bucket name),
-   optional `ALERT_EMAIL` variable.
+   optional `ALERT_EMAIL` secret.
 5. Seed the SSM SecureStrings `/opencode/server-password`,
    `/opencode/github-token`, `/opencode/github-oauth-secret`, and
    `/opencode/oauth-cookie-secret` (console or any admin machine —

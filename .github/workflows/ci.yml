@@ -11,8 +11,8 @@
 #   deploy). Docs-only pushes skip the slow jobs. All gates fail open:
 #   if the filter job breaks, everything runs.
 # Requirements: AWS_ROLE_ARN secret + TF_STATE_BUCKET variable, else the
-#   deploy job fails red. Optional: ALERT_EMAIL variable (intrusion alarm
-#   recipient; absent = alarms exist but email no one). Rollback: revert on
+#   deploy job fails red. Optional: ALERT_EMAIL secret (intrusion alarm
+#   recipient, masked in logs; absent = alarms exist but email no one). Rollback: revert on
 #   main and push; next green run re-applies (state versioned in S3).
 name: ci
 
@@ -245,7 +245,7 @@ jobs:
     env:
       AWS_REGION: eu-west-1
       TF_STATE_KEY: opencode-server/prod/terraform.tfstate
-      TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
+      TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
       # Optional SSH door, never in git: the public key rides a Variable
       # (not sensitive), the deployer /32 rides a Secret (masked in logs).
       # Both unset = SSM-only, no port-22 ingress (the default).

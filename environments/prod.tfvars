@@ -8,7 +8,7 @@ allowed_ssh_cidr = ""
 ssh_public_key   = "" # optional: "ssh-ed25519 AAAA..." (pair with your /32 in allowed_ssh_cidr)
 root_volume_size = 30
 domain_name      = "54-170-161-9.nip.io" # wildcard DNS for the EIP; Caddy gets Let's Encrypt TLS for it
-alert_email      = ""                    # set via ALERT_EMAIL Actions variable (TF_VAR_ wins)
+alert_email      = ""                    # set via ALERT_EMAIL Actions secret (TF_VAR_ wins)
 git_user_name    = "rcasia"
 git_user_email   = "31012661+rcasia@users.noreply.github.com"
 # SSO human gate (ADR-0014): GitHub OAuth App client ID (public) + the one
