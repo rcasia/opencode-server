@@ -220,7 +220,7 @@ why_deny() {
     || { echo "FAIL: expected sandbox to deny: $*"; printf '%s\n' "$OUT"; exit 1; }
   echo "PASS: sandbox denies $*"
 }
-why_allow --path /root --op write
+why_allow --path /root/workspace --op write
 why_allow --host https://api.anthropic.com
 why_allow --host https://api.github.com
 why_deny --path /root/.aws --op read

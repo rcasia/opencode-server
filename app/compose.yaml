@@ -94,9 +94,9 @@ services:
       - SYS_PTRACE
     security_opt:
       - no-new-privileges:true
-    working_dir: /root
+    working_dir: /root/workspace
     volumes:
-      - opencode-workspace:/root
+      - opencode-workspace:/root/workspace
       - ./opencode.json:/root/.config/opencode/opencode.json:ro
       - ./nono-profile.json:/etc/nono/profile.json:ro
       - ./nono-container:/usr/local/bin/nono:ro
@@ -125,9 +125,9 @@ services:
       - SYS_PTRACE
     security_opt:
       - no-new-privileges:true
-    working_dir: /root
+    working_dir: /root/workspace
     volumes:
-      - opencode-workspace:/root
+      - opencode-workspace:/root/workspace
       - ./opencode.json:/root/.config/opencode/opencode.json:ro
       - ./nono-profile.json:/etc/nono/profile.json:ro
       - ./nono-container:/usr/local/bin/nono:ro
