@@ -28,8 +28,9 @@ subnet (no NAT), Elastic IP, SSM access, optional SSH key.
   (`Dockerfile.boot` + `stubs/`, see ADR-0007)
 - `docs/adr/` — architecture decision records (index + template); add one per
   significant infra/security choice, never rewrite an accepted record
-- `bootstrap/` — one-time stack for the S3 state bucket + GitHub OIDC
-  deploy role/policy (local state; see ADR-0012)
+- `bootstrap/` — one-time-adopt, pipeline-applied stack for the S3 state
+  bucket + GitHub OIDC deploy role/policy (S3 state, `bootstrap` CI job;
+  see ADR-0012, ADR-0013)
 - `backend.hcl.example` — copy to `backend.hcl` (gitignored) after bootstrap
 - `terraform.tfvars.example` — copy to `terraform.tfvars` (gitignored)
 - `environments/prod.tfvars` — committed prod defaults; deploys via pipeline only
@@ -78,7 +79,9 @@ Load these before changing infra:
    then `init -migrate-state -backend-config=backend.hcl` once.
 5. `terraform fmt -recursive` and `terraform validate` must pass locally
    before push. CI runs `fmt -check`, `init -backend=false`, `validate`.
-6. Pipeline-only deploys to real AWS: pushes to `main` ship prod via
+6. Pipeline-only prod, never from laptop: no applies, no AWS writes, no
+   console edits — bootstrap included (it ships via the `bootstrap` job
+   before `deploy-prod`). Pushes to `main` ship prod via
    the `deploy-prod` job once `pre-commit`, `terraform` and `local`
    are green. Local applies target Moto only. Never `destroy` without
    explicit user confirmation.

@@ -41,8 +41,10 @@ push to main (PRs run the checks only, never deploy)
      ├─ changes: paths-filter (infra vs app vs pipeline vs docs-only)
      ├─ pre-commit: always (hygiene + terraform fmt/validate + actionlint + secrets)
      ├─ terraform: only on infra/pipeline changes (fmt -check, init, validate)
-     ├─ local: only on infra/pipeline changes (moto plan + apply + idempotence + bootstrap build)
-     ├─ deploy-prod (main pushes only, needs green-or-skipped checks)
+     ├─ local: only on infra/pipeline changes (moto plan + apply + idempotence)
+     ├─ bootstrap (main pushes only, needs green-or-skipped checks)
+     │    └─ adopts + applies bootstrap/ (deploy trust) via OIDC itself
+     ├─ deploy-prod (main pushes only, needs bootstrap)
      │    ├─ upload app bundle → OIDC creds → init (S3) → validate → plan
      │    └─ apply + smoke test, only when the plan has changes
      └─ deploy-app (app-file changes only, after deploy-prod)
@@ -65,33 +67,32 @@ skip `terraform`, `local`, and `deploy-prod` entirely.
   shippable. Rollback = revert the commit and push — the next green run
   re-applies the previous state (state is versioned in S3).
 
-## Pipeline setup (one-time, from your laptop)
+## Pipeline setup (one-time bridge, then pipeline owns everything)
 
-Deploys use OIDC — no long-lived access keys. `bootstrap/` owns the
-whole deploy trust: state bucket + GitHub OIDC provider + deploy role
-and its policy (see [`docs/adr/0012-deploy-role.md`](docs/adr/0012-deploy-role.md)).
-Apply it once with your own credentials:
+Deploys use OIDC — no long-lived access keys. Standing rule: **prod is
+pipeline-only, no laptop touches** — bootstrap included (see
+[`docs/adr/0013-pipeline-bootstrap.md`](docs/adr/0013-pipeline-bootstrap.md)).
+The role, OIDC provider, and state bucket already exist manually; the
+pipeline adopts them. It needs one hand-made bridge first:
 
-```bash
-terraform -chdir=bootstrap init
-terraform -chdir=bootstrap apply
-```
+IAM → Roles → `opencode-server-deploy` → Add inline policy named
+`bridge` with the statements listed in ADR-0013 (bundle + state bucket
+management, scoped IAM self-management, `sts:GetCallerIdentity`).
 
-Then:
+Then push: the `bootstrap` job imports the manual resources, applies
+`bootstrap/` (creating the TF-managed policy), and deletes the `bridge`
+policy. From that point the role carries exactly what Terraform says —
+no residue.
+
+After that:
 
 1. GitHub → repo Settings → Secrets and variables → Actions:
-   - Secret `AWS_ROLE_ARN` = `terraform -chdir=bootstrap output -raw deploy_role_arn`
-   - Variable `TF_STATE_BUCKET` = `terraform -chdir=bootstrap output -raw state_bucket`
+   - Secret `AWS_ROLE_ARN` = the deploy role ARN (unchanged by adoption).
+   - Variable `TF_STATE_BUCKET` = the state bucket name.
 2. Restrict `allowed_ssh_cidr` in `environments/prod.tfvars` to your
    IP with `/32` — never deploy prod open to `0.0.0.0/0`.
-3. Push to `main`; the `deploy-prod` job applies automatically
+3. Push to `main`; `bootstrap` then `deploy-prod` apply automatically
    (plan, apply, smoke test).
-
-Migrating from the old console-created role: bootstrap creates
-`opencode-server-deploy`, which collides with the manual one. Either
-delete the manual role + OIDC provider in the console and let bootstrap
-recreate them (cleaner — the role holds no state), or import both into
-bootstrap state first.
 
 ## GitHub Actions secrets and variables
 
@@ -168,7 +169,9 @@ Let's Encrypt issuance, which needs the public IP.
 the exact `user_data` Terraform would run, and executes it in an AL2023
 container (`app/Dockerfile.boot`) with only cloud endpoints stubbed
 (SSM, systemd, mount, Docker daemon). Catches script bugs deterministically;
-EC2-only races (attach timing) still need the real box.
+EC2-only races (attach timing) still need the real box. It runs locally
+only — deliberately not in the pipeline (too slow); run it via `make`
+when changing `user_data.sh`.
 
 Speed: the Dockerfile builds in two stages — `bootenv` (all installs,
 published to GHCR, rebuilt rarely) and `test` (the script, re-runs in a
@@ -255,14 +258,11 @@ only boots registered images. Outputs (IPs, ids) are mock values.
 ## State backend (S3)
 
 Root state lives in S3 with native locking (`use_lockfile`, no DynamoDB).
-One-time bootstrap from your laptop:
+Bootstrap state lives there too (`opencode-server/bootstrap/terraform.tfstate`),
+managed by the `bootstrap` CI job — both backends init with
+`-backend=false` in pre-commit, so no bucket or credentials are needed there.
 
-```bash
-terraform -chdir=bootstrap init
-terraform -chdir=bootstrap apply
-cp backend.hcl.example backend.hcl  # fill bucket from bootstrap output
-terraform init -migrate-state -backend-config=backend.hcl
-```
-
-`backend.hcl` is gitignored. CI and pre-commit init with `-backend=false`,
-so no bucket or credentials are needed there.
+Local `backend.hcl` flow (root stack, read-only pre-flight): copy
+`backend.hcl.example` to `backend.hcl` (gitignored), fill the bucket,
+`terraform init -backend-config=backend.hcl`. Plan only (`make
+plan-prod`) — applies ship via the pipeline, never from a laptop.
