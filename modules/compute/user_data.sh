@@ -1,29 +1,19 @@
 #!/bin/bash
 set -eux
 
-# Slim bootstrap (ADR-0007): Docker + files + compose up. No app installs at
-# boot — Caddy and opencode ship as pinned images (app/compose.yaml).
 dnf update -y
 dnf install -y docker git tmux htop jq unzip tar rsyslog amazon-cloudwatch-agent
 
-# Persistent data disk (ADR-0008): format once, mount at /var/lib/docker so
-# containers, images, sessions, and certs survive instance replacement.
-# The EBS attach races with first boot, so wait for the device instead of
-# dying instantly (an instant exit 1 here once bricked two deploys).
 VOL_SFX=$(echo "${data_volume_id}" | tr -d '-')
 DATA_DEV=""
 for _dev in /dev/disk/by-id/*; do
-  case "$(basename "$_dev")" in
-    *"$VOL_SFX"*) DATA_DEV="$(basename "$_dev")"; break ;;
-  esac
+  case "$(basename "$_dev")" in *"$VOL_SFX"*) DATA_DEV="$(basename "$_dev")"; break;; esac
 done
 for _ in $(seq 1 60); do
   [ -n "$DATA_DEV" ] && break
   sleep 5
   for _dev in /dev/disk/by-id/*; do
-    case "$(basename "$_dev")" in
-      *"$VOL_SFX"*) DATA_DEV="$(basename "$_dev")"; break ;;
-    esac
+    case "$(basename "$_dev")" in *"$VOL_SFX"*) DATA_DEV="$(basename "$_dev")"; break;; esac
   done
 done
 [ -n "$DATA_DEV" ] || { echo "data volume ${data_volume_id} never attached"; exit 1; }
@@ -37,20 +27,17 @@ mount -a
 systemctl enable --now docker
 usermod -aG docker ec2-user || true
 
-# AWS CLI v2 (SSM secret fetch below). Downloaded over TLS from AWS's
-# canonical install URL (no versioned artifact exists that stays current).
 curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
 unzip -q -o /tmp/awscliv2.zip -d /tmp
 /tmp/aws/install --update 2>/dev/null || /tmp/aws/install
 rm -rf /tmp/aws /tmp/awscliv2.zip
 
-# Docker Compose plugin: dnf first, pinned GitHub fallback for the host arch.
 dnf install -y docker-compose-plugin || {
   COMPOSE_VERSION="v5.5.1"
   ARCH=$(uname -m)
   case "$ARCH" in
-    x86_64) EXPECTED_SHA256="db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576" ;; # pragma: allowlist secret -- pinned release hash, not a credential
-    aarch64) EXPECTED_SHA256="732e3a84c1a0f67256ce80bc2598a24546b10ca05f9faa97efceb1171ece2ef7" ;; # pragma: allowlist secret -- pinned release hash, not a credential
+    x86_64) EXPECTED_SHA256="db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576" ;;
+    aarch64) EXPECTED_SHA256="732e3a84c1a0f67256ce80bc2598a24546b10ca05f9faa97efceb1171ece2ef7" ;;
     *) echo "unsupported arch $ARCH for compose fallback"; exit 1 ;;
   esac
   mkdir -p /usr/local/lib/docker/cli-plugins
@@ -61,10 +48,7 @@ dnf install -y docker-compose-plugin || {
 }
 docker compose version
 
-# App stack: fetched from the S3 bundle (ADR-0011, ADR-0015), never baked
-# into this script, so app changes deploy without replacing the instance.
 mkdir -p /opt/opencode/logs
-ls -la /opt/opencode/
 rm -rf /opt/opencode/compose.yaml /opt/opencode/Caddyfile /opt/opencode/switch.sh /opt/opencode/opencode.json
 for _ in $(seq 1 60); do
   aws s3 cp "s3://${app_bundle_bucket}/app/compose.yaml" /opt/opencode/compose.yaml --region "${aws_region}" \
@@ -86,11 +70,7 @@ OAUTH2_PROXY_REDIRECT_URL=https://${domain_name}/oauth2/callback
 ENV_EOF
 chmod 600 /opt/opencode/app.env
 
-# Secrets from SSM (ADR-0004, ADR-0014): never in repo/state/logs.
-# set -x at the top would otherwise echo values into cloud-init-output.log.
-# Disable xtrace around every secret fetch, write directly to the 0600 env
-# file, then unset the shell variable. Empty provider parameter names are
-# deliberately skipped, so an unconfigured provider remains unavailable.
+# Secrets from SSM: keep xtrace disabled for every secret fetch/write.
 set +x
 VALUE=$(aws ssm get-parameter --name "${opencode_password_parameter}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
 printf 'OPENCODE_SERVER_PASSWORD=%s\n' "$VALUE" >> /opt/opencode/app.env
@@ -105,9 +85,9 @@ printf 'OAUTH2_PROXY_COOKIE_SECRET=%s\n' "$COOKIE_SECRET" >> /opt/opencode/app.e
 unset COOKIE_SECRET
 %{ for env_name, parameter_name in provider_api_key_parameters ~}
 %{ if parameter_name != "" ~}
-${env_name}_VALUE=$(aws ssm get-parameter --name "${parameter_name}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
-printf '${env_name}=%s\n' "$${env_name}_VALUE" >> /opt/opencode/app.env
-unset ${env_name}_VALUE
+PROVIDER_VALUE=$(aws ssm get-parameter --name "${parameter_name}" --with-decryption --query Parameter.Value --output text --region "${aws_region}")
+printf '${env_name}=%s\n' "$PROVIDER_VALUE" >> /opt/opencode/app.env
+unset PROVIDER_VALUE
 %{ endif ~}
 %{ endfor ~}
 set -x
@@ -118,7 +98,6 @@ docker compose up -d caddy oauth2-proxy opencode-blue
 echo blue > /opt/opencode/.live-color
 docker compose ps
 
-# Git identity + auth inside the container (ADR-0010). Idempotent.
 cat > /usr/local/bin/opencode-git-setup.sh <<'GIT_EOF'
 #!/bin/bash
 set +x
@@ -134,7 +113,7 @@ GH_PAT=$(aws ssm get-parameter --name "${github_token_parameter}" --with-decrypt
 [ -n "${git_user_name}" ] && $COMPOSE exec -T $TARGET git config --global user.name "${git_user_name}" || true
 [ -n "${git_user_email}" ] && $COMPOSE exec -T $TARGET git config --global user.email "${git_user_email}" || true
 $COMPOSE exec -T $TARGET git config --global credential.helper store
-printf 'https://x-access-token:%s@github.com\n' "$GH_PAT" | $COMPOSE exec -T -i $TARGET sh -c 'cat > /root/.git-credentials && chmod 600 /root/.git-credentials' # pragma: allowlist secret -- %s placeholder, token arrives via SSM at runtime
+printf 'https://x-access-token:%s@github.com\n' "$GH_PAT" | $COMPOSE exec -T -i $TARGET sh -c 'cat > /root/.git-credentials && chmod 600 /root/.git-credentials'
 $COMPOSE exec -T $TARGET git config --global credential.helper | grep -q '^store$' || { echo "WARNING: git credential helper not applied" >&2; exit 1; }
 GIT_EOF
 chmod +x /usr/local/bin/opencode-git-setup.sh
@@ -156,43 +135,16 @@ UNIT_EOF
 systemctl daemon-reload
 systemctl enable opencode-colors.service
 
-# Intrusion visibility (ADR-0006): ship Caddy access logs + sshd syslog to CloudWatch.
 systemctl enable --now rsyslog
 cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<CW_EOF
 {
-  "agent": {
-    "metrics_collection_interval": 60,
-    "run_as_user": "root"
-  },
-  "logs": {
-    "logs_collected": {
-      "files": {
-        "collect_list": [
-          {
-            "file_path": "/opt/opencode/logs/access.log",
-            "log_group_name": "${name_prefix}-caddy",
-            "log_stream_name": "{instance_id}"
-          },
-          {
-            "file_path": "/var/log/secure",
-            "log_group_name": "${name_prefix}-secure",
-            "log_stream_name": "{instance_id}"
-          },
-          {
-            "file_path": "/var/log/cloud-init-output.log",
-            "log_group_name": "${name_prefix}-boot",
-            "log_stream_name": "{instance_id}"
-          },
-          {
-            "file_path": "/var/lib/docker/containers/*/*.log",
-            "log_group_name": "${name_prefix}-containers",
-            "log_stream_name": "{instance_id}"
-          }
-        ]
-      }
-    }
-  }
-}
+  "agent": { "metrics_collection_interval": 60, "run_as_user": "root" },
+  "logs": { "logs_collected": { "files": { "collect_list": [
+    { "file_path": "/opt/opencode/logs/access.log", "log_group_name": "${name_prefix}-caddy", "log_stream_name": "{instance_id}" },
+    { "file_path": "/var/log/secure", "log_group_name": "${name_prefix}-secure", "log_stream_name": "{instance_id}" },
+    { "file_path": "/var/log/cloud-init-output.log", "log_group_name": "${name_prefix}-boot", "log_stream_name": "{instance_id}" },
+    { "file_path": "/var/lib/docker/containers/*/*.log", "log_group_name": "${name_prefix}-containers", "log_stream_name": "{instance_id}" }
+  ] } } }
 CW_EOF
 /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json \
   || echo "WARNING: cloudwatch agent config failed; continuing without log shipping" >&2
