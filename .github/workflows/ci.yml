@@ -273,9 +273,9 @@ jobs:
         run: |
           BUCKET="$(terraform output -raw app_bundle_bucket 2>/dev/null || true)"
           if [ -z "$BUCKET" ] || ! aws s3api head-bucket --bucket "$BUCKET" --region "${{ env.AWS_REGION }}" 2>/dev/null; then echo "no bundle bucket yet, skipping"; exit 0; fi
-          aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/switch.sh "s3://$BUCKET/app/switch.sh" --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/switch.sh "s3://$BUCKET/app/switch.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
 
       - name: Terraform validate
         run: terraform validate
@@ -309,9 +309,9 @@ jobs:
         if: steps.plan.outputs.exitcode == '2'
         run: |
           BUCKET="$(terraform output -raw app_bundle_bucket)"
-          aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/switch.sh "s3://$BUCKET/app/switch.sh" --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/switch.sh "s3://$BUCKET/app/switch.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
 
       - name: Smoke test (site answers through TLS + SSO gate)
         if: steps.plan.outputs.exitcode == '2'
@@ -377,9 +377,9 @@ jobs:
           previous bundle)
         run: |
           BUCKET="$(terraform output -raw app_bundle_bucket)"
-          aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --region "${{ env.AWS_REGION }}"
-          aws s3 cp app/switch.sh "s3://$BUCKET/app/switch.sh" --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/switch.sh "s3://$BUCKET/app/switch.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
 
       - name: Blue-green switch via SSM (idle color up + /ready-gated,
           live untouched until the idle answers — no failed requests)
