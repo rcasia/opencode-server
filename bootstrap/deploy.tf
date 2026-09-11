@@ -572,7 +572,8 @@ data "aws_iam_policy_document" "deploy_observe" {
 
   # Session audit document (issue #54): the pipeline owns the
   # SSM-SessionManagerRunShell preferences that stream shell sessions
-  # to CloudWatch. Scoped to that document name only.
+  # to CloudWatch. Scoped to that document name only. Tag actions ride
+  # along because provider default_tags tag the document on create.
   statement {
     sid = "SsmSessionDoc"
     actions = [
@@ -581,6 +582,9 @@ data "aws_iam_policy_document" "deploy_observe" {
       "ssm:DeleteDocument",
       "ssm:DescribeDocument",
       "ssm:GetDocument",
+      "ssm:AddTagsToResource",
+      "ssm:RemoveTagsFromResource",
+      "ssm:ListTagsForResource",
     ]
     resources = ["arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:document/SSM-SessionManagerRunShell"]
   }
