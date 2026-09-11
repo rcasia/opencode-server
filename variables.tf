@@ -10,6 +10,12 @@ variable "ami_id" {
   default     = ""
 }
 
+variable "host_replace_trigger" {
+  description = "Flip to a new value (e.g. timestamp) to force host replacement alongside an AMI pin. AMI drift from the lookup never replaces on its own (issue #43)."
+  type        = string
+  default     = ""
+}
+
 variable "availability_zone" {
   description = "Override AZ lookup. Useful for LocalStack, whose AZs are mocked."
   type        = string

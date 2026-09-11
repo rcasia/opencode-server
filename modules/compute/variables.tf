@@ -8,6 +8,12 @@ variable "ami_id" {
   type        = string
 }
 
+variable "host_replace_trigger" {
+  description = "Change to force host replacement (AMI rotation). AMI lookup drift alone never replaces (issue #43)."
+  type        = string
+  default     = ""
+}
+
 variable "instance_type" {
   description = "EC2 instance type"
   type        = string

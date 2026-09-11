@@ -15,6 +15,13 @@ resource "aws_iam_role" "server" {
   assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
 }
 
+# Deliberate-rotation trigger (issue #43, ADR-0029): changing
+# host_replace_trigger taints this, which replaces the instance via
+# replace_triggered_by. Value never matters, only changes.
+resource "terraform_data" "host_replace" {
+  input = var.host_replace_trigger
+}
+
 resource "aws_iam_role_policy_attachment" "ssm" {
   role       = aws_iam_role.server.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
@@ -159,6 +166,16 @@ resource "aws_instance" "server" {
   # v6 defaults this to false (in-place update that never re-runs user_data);
   # this server is cattle: bootstrap changes must replace it.
   user_data_replace_on_change = true
+  # AMI predictability (issue #43, ADR-0029): the AL2023 lookup drifts
+  # every 1-2 weeks; without this, each release would replace prod
+  # unannounced. Lookup drift is ignored; deliberate rotation flips
+  # host_replace_trigger (or pins ami_id AND flips the trigger).
+  # replace_triggered_by takes resources only, so the trigger value
+  # rides terraform_data (builtin, no provider).
+  lifecycle {
+    ignore_changes       = [ami]
+    replace_triggered_by = [terraform_data.host_replace]
+  }
   user_data = templatefile("${path.module}/user_data.sh", {
     name_prefix                   = var.name_prefix
     aws_region                    = var.aws_region

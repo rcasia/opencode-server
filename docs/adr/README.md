@@ -32,6 +32,7 @@ trade-offs, and never rewrite an accepted record — supersede it with a new one
 | [0026](0026-container-hardening.md) | Container hardening: cap_drop ALL, explicit opencode.json permissions, docker.sock residual risk | Accepted | 2026-09-11 |
 | [0027](0027-nono-musl-install.md) | nono install via static musl tarball (RPM path removed) | Accepted | 2026-09-11 |
 | [0028](0028-per-service-env-files.md) | Per-service env files instead of a shared app.env | Accepted | 2026-09-11 |
+| [0029](0029-ami-rotation-policy.md) | AMI rotation is deliberate, never lookup drift | Accepted | 2026-09-11 |
 
 ## Creating a New ADR
 

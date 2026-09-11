@@ -331,6 +331,22 @@ jobs:
           exitcode=${exitcode:-0}
           echo "exitcode=$exitcode" >> "$GITHUB_OUTPUT"
           if [ "$exitcode" -eq 1 ]; then exit 1; fi
+      # Host-replacement gate (issue #43): AMI lookup drift must never
+      # replace prod unannounced. A plan that deletes the server fails
+      # unless the head commit opts in with [replace-host].
+      - name: Fail on unannounced host replacement
+        if: steps.plan.outputs.exitcode == '2'
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          if terraform show -json tfplan | jq -e '.resource_changes[] | select(.address == "module.compute.aws_instance.server" and (.change.actions | index("delete")))' >/dev/null; then
+            case "$COMMIT_MSG" in
+              *"[replace-host]"*) echo "host replacement opted in via [replace-host]" ;;
+              *) echo "::error::plan replaces module.compute.aws_instance.server without [replace-host] in the head commit message. Add [replace-host] to opt in (kills in-flight sessions)."; exit 1 ;;
+            esac
+          else
+            echo "no host replacement in plan"
+          fi
       - name: Upload plan (audit)
         if: steps.plan.outputs.exitcode == '2'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
