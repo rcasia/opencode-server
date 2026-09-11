@@ -52,8 +52,10 @@ rule 10).
 ## Watch
 
 - **Intrusion alerting.** SSO-deny 403 bursts and backend 401 bursts
-  (≥20/5 min each) and sshd failures (≥3/5 min) ship to CloudWatch and
-  page via SNS email.
+  (≥20/5 min each, plus a fast ≥10/1 min 401 twin) and sshd failures
+  (≥3/5 min) ship to CloudWatch and page via SNS email (topic encrypted
+  with the AWS-managed SNS key). Backend 5xx bursts (≥10/5 min) and
+  sustained host CPU (>80% for 15 min) page too.
   (`modules/monitoring`, ADR-0006, ADR-0014)
 - **Uptime probe.** Route 53 hits `/ready` every 30s, pages after 3
   failures — full chain (edge + backend), outside the login-failure
@@ -61,7 +63,12 @@ rule 10).
   ADR-0009, ADR-0015)
 - **Audit trail.** Every apply stamps the commit SHA as `DeployedRef`
   (instance + disk) and `deployed_version`; plans are kept as 30-day
-  artifacts. (`outputs.tf`)
+  artifacts. (`outputs.tf`) A single-region CloudTrail records account
+  management events to a dedicated audit bucket (validated log files),
+  and VPC Flow Logs ship to CloudWatch (30d) — post-incident forensics
+  for API + network activity. State, bundle, and audit buckets enforce
+  TLS-only access, keep access logs (90d), and expire noncurrent
+  versions. (ADR-0017)
 
 ## Trust
 
@@ -89,7 +96,8 @@ rule 10).
   session tokens (hop limit 1). (ADR-0016)
 - **Supply-chain hygiene.** SHA-pinned actions, Dependabot (21-day
   cooldown) for actions/terraform/compose-image pins, `tag@digest`
-  images. (ADR-0003)
+  images (including the Moto mock), and a pinned + checksummed compose
+  fallback at boot that fails loud on mismatch. (ADR-0003)
 - **Local testability.** Moto mock (`make local-up/plan-local/apply-local`,
   no credentials) plus `make test-boot` (compose chain with dummy env,
   dummy OAuth values — proves SSO wiring, not the GitHub round-trip).
