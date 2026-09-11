@@ -102,6 +102,12 @@ Load these before changing infra:
     the list in the same push (docs commit if the code went separately).
     If code and contract disagree, the contract wins until fixed — never
     silently drift.
+11. One agent per checkout. Several agents share this machine, so never
+    work directly in a shared checkout: clone the repo (or
+    `git worktree add`) into `/tmp/opencode/<agent-or-task>` and commit
+    only from there. Never stage, commit, push, or overwrite another
+    agent's uncommitted changes; if a tree is dirty and it isn't yours,
+    leave it alone and say so.
 
 ## Workflows
 
