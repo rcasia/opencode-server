@@ -67,6 +67,17 @@ rule 10).
   credential paths, and `docker.sock` denied. The pinned nono RPM rides
   the S3 bundle (CI verifies SHA, boot installs from disk). Agent
   container builds move out of the sandbox. Rationale: ADR-0020, ADR-0025.
+- **Hardened backend containers.** Both backend colors use `cap_drop: [ALL]`
+  + `cap_add: [SYS_PTRACE]` (nono requirement) and `no-new-privileges:true`,
+  matching the posture of caddy and oauth2-proxy in the same stack. `docker.sock`
+  is never mounted; re-adding it requires an explicit ADR (credential-theft
+  path documented in ADR-0026). Rationale: ADR-0026.
+- **Explicit opencode.json permissions.** The managed `app/opencode.json` grants
+  file tools (`read`, `edit`, `glob`, `grep`, `list`) and subagent tools
+  (`task`, `todowrite`) as `allow`; shell (`bash`), network reads (`webfetch`,
+  `websearch`), and cross-repo access (`external_directory`) require operator
+  confirmation (`ask`). Any future tool not listed defaults to `ask` rather
+  than auto-allowing. Rationale: ADR-0026.
 
 ## Watch
 
