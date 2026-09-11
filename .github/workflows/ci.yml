@@ -268,7 +268,7 @@ jobs:
       - name: Upload app bundle (S3, versioned — boots and rolling restarts read it)
         run: |
           BUCKET="$(terraform output -raw app_bundle_bucket 2>/dev/null || true)"
-          if [ -z "$BUCKET" ]; then echo "no bundle bucket in state yet, skipping"; exit 0; fi
+          if [ -z "$BUCKET" ] || ! aws s3api head-bucket --bucket "$BUCKET" --region "${{ env.AWS_REGION }}" 2>/dev/null; then echo "no bundle bucket yet, skipping"; exit 0; fi
           aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --region "${{ env.AWS_REGION }}"
           aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --region "${{ env.AWS_REGION }}"
 
