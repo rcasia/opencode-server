@@ -9,6 +9,12 @@ data "aws_caller_identity" "current" {}
 resource "aws_s3_bucket" "app_bundle" {
   bucket        = "${local.name_prefix}-app-bundle-${data.aws_caller_identity.current.account_id}"
   force_destroy = true
+
+  # Moto's S3 mock drops tags on create, so every plan sees tag drift.
+  # Real S3 returns them; this only bites the mock idempotence check.
+  lifecycle {
+    ignore_changes = [tags_all]
+  }
 }
 
 resource "aws_s3_bucket_versioning" "app_bundle" {
