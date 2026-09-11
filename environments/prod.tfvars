@@ -16,3 +16,10 @@ git_user_email   = "31012661+rcasia@users.noreply.github.com"
 # empty means oauth2-proxy fails closed (loud, not silent).
 github_oauth_client_id = "Ov23li57p6MCRSAeOaFy"
 github_oauth_user      = "rcasia"
+
+# Provider credentials: names only. Values live in SSM SecureStrings and are
+# fetched by the instance at boot with xtrace disabled. Empty = disabled.
+provider_api_key_parameters = {
+  ANTHROPIC_API_KEY = "/opencode/anthropic-api-key"
+  OPENAI_API_KEY    = ""
+}
