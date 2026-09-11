@@ -24,10 +24,9 @@ the Moto mock (see below).
 git push origin main   # checks then deploy-prod, all in the ci run
 ```
 
-`make plan-prod` works as a local pre-flight plan (needs credentials
-plus `backend.hcl`). Without `AWS_ROLE_ARN` / `TF_STATE_BUCKET`
-configured, `deploy-prod` fails red — that is the signal to finish the
-one-time setup below.
+Without `AWS_ROLE_ARN` / `TF_STATE_BUCKET` configured, `deploy-prod`
+fails red — that is the signal to finish the one-time setup below.
+Review the `tfplan-prod` artifact in the run, never plan from a laptop.
 
 ## CI/CD pipeline
 
@@ -38,14 +37,22 @@ designed after Fowler's [Continuous Integration](https://martinfowler.com/articl
 ```text
 push to main (PRs run the checks only, never deploy)
 └─ ci, one workflow graph
-     ├─ changes: paths-filter (infra vs pipeline vs docs-only)
+     ├─ changes: paths-filter (infra vs app vs pipeline vs docs-only)
      ├─ pre-commit: always (hygiene + terraform fmt/validate + actionlint + secrets)
      ├─ terraform: only on infra/pipeline changes (fmt -check, init, validate)
-     ├─ local: only on infra/pipeline changes (moto plan, zero credentials)
-     └─ deploy-prod (main pushes only, needs green-or-skipped checks)
-          ├─ OIDC creds → init (S3) → validate → plan
-          └─ apply + smoke test, only when the plan has changes
+     ├─ local: only on infra/pipeline changes (moto plan + apply + idempotence)
+     ├─ bootstrap (main pushes only, needs green-or-skipped checks)
+     │    └─ adopts + applies bootstrap/ (deploy trust) via OIDC itself
+     ├─ deploy-prod (main pushes only, needs bootstrap)
+     │    ├─ upload app bundle → OIDC creds → init (S3) → validate → plan
+     │    └─ apply + smoke test, only when the plan has changes
+     └─ deploy-app (app-file changes only, after deploy-prod)
+          └─ SSM rolling restart (pull + up, no replacement) + smoke test
 ```
+App changes never replace the instance: the bundle (`app/`) uploads to S3
+and the live box pulls + restarts containers (seconds of blip). Host
+changes (Terraform) still replace — rarely, by construction. Rationale:
+[`docs/adr/0011-rolling-deploys.md`](docs/adr/0011-rolling-deploys.md).
 Gates fail open: if the filter breaks, everything runs. Docs-only pushes
 skip `terraform`, `local`, and `deploy-prod` entirely.
 
@@ -59,29 +66,31 @@ skip `terraform`, `local`, and `deploy-prod` entirely.
   shippable. Rollback = revert the commit and push — the next green run
   re-applies the previous state (state is versioned in S3).
 
-## Pipeline setup (one-time, AWS console)
+## Pipeline setup (one-time bridge, then pipeline owns everything)
 
-Deploys use OIDC — no long-lived access keys.
+Deploys use OIDC — no long-lived access keys. Standing rule: **prod is
+pipeline-only, no laptop touches** — bootstrap included (see
+[`docs/adr/0013-pipeline-bootstrap.md`](docs/adr/0013-pipeline-bootstrap.md)).
+The role, OIDC provider, and state bucket already exist manually; the
+pipeline adopts them. It needs one hand-made bridge first:
 
-1. IAM → Identity providers → Add OIDC provider: URL
-   `https://token.actions.githubusercontent.com`, audience
-   `sts.amazonaws.com`.
-2. IAM → Roles → Create role → Web identity: pick that provider, audience
-   `sts.amazonaws.com`, condition `StringLike`
-   `token.actions.githubusercontent.com:sub` =
-   `repo:rcasia/opencode-server:*`. Name it `opencode-server-deploy`.
-3. Attach a policy covering: EC2/VPC/SG/EIP/key-pair/volume management,
-   IAM roles + instance profiles + key pairs + attaching the
-   `AmazonSSMManagedInstanceCore` policy, and S3 access to the state
-   bucket (`s3:ListBucket` on the bucket, object RW on
-   `opencode-server/*`).
-4. Deploy `bootstrap/` once (creates the state bucket) and note its name.
-5. GitHub → repo Settings → Secrets and variables → Actions:
-   - Secret `AWS_ROLE_ARN` = the role ARN from step 2.
-   - Variable `TF_STATE_BUCKET` = the state bucket name from step 4.
-6. Restrict `allowed_ssh_cidr` in `environments/prod.tfvars` to your
+IAM → Roles → `opencode-server-deploy` → Add inline policy named
+`bridge` with the statements listed in ADR-0013 (bundle + state bucket
+management, scoped IAM self-management, `sts:GetCallerIdentity`).
+
+Then push: the `bootstrap` job imports the manual resources, applies
+`bootstrap/` (creating the TF-managed policy), and deletes the `bridge`
+policy. From that point the role carries exactly what Terraform says —
+no residue.
+
+After that:
+
+1. GitHub → repo Settings → Secrets and variables → Actions:
+   - Secret `AWS_ROLE_ARN` = the deploy role ARN (unchanged by adoption).
+   - Variable `TF_STATE_BUCKET` = the state bucket name.
+2. Restrict `allowed_ssh_cidr` in `environments/prod.tfvars` to your
    IP with `/32` — never deploy prod open to `0.0.0.0/0`.
-7. Push to `main`; the `deploy-prod` job applies automatically
+3. Push to `main`; `bootstrap` then `deploy-prod` apply automatically
    (plan, apply, smoke test).
 
 ## GitHub Actions secrets and variables
@@ -97,42 +106,69 @@ gh variable list --repo rcasia/opencode-server
 
 | Name | Type | How to obtain |
 |---|---|---|
-| `AWS_ROLE_ARN` | Secret | One-time AWS setup above (pipeline steps 1–2): repo Settings → Secrets and variables → Actions → Secrets tab → New repository secret, paste the role ARN. |
-| `TF_STATE_BUCKET` | Variable | After bootstrap apply: `terraform -chdir=bootstrap output -raw state_bucket`. Same Settings page → Variables tab → New repository variable. |
+| `AWS_ROLE_ARN` | Secret | The deploy role ARN from the one-time setup (pipeline adoption never changes it): repo Settings → Secrets and variables → Actions → Secrets tab → New repository secret. |
+| `TF_STATE_BUCKET` | Variable | The state bucket name (`opencode-prod-tfstate-<account-id>`). Same Settings page → Variables tab → New repository variable. |
 
 Also required before the first real apply (in code, not in Actions):
 `allowed_ssh_cidr` in `environments/prod.tfvars` must be your IP with
 `/32`, never `0.0.0.0/0`.
 
-Connect:
-```bash
-# keyless (SSM)
-aws ssm start-session --region eu-west-1 --target $(terraform output -raw instance_id)
-# or SSH if ssh_public_key set
-```
+Shell access: there is none from laptops — no SSH keys issued, no SSM
+shells. The server is operated through `opencode web` (the
+`opencode_url` output, user `opencode`) and through the pipeline. A
+suspect box is recovered by re-running the deploy jobs, not by logging
+in; the data volume survives replacement.
 
-## opencode web access (phone-friendly HTTPS)
+## opencode web access (phone-friendly HTTPS, passwordless SSO)
 
-Design rationale lives in [`docs/adr/0001-caddy-tls-proxy.md`](docs/adr/0001-caddy-tls-proxy.md):
-Caddy terminates TLS and proxies to `opencode web` on localhost; the login
-password comes from an SSM SecureString parameter (never in repo/state).
+Design rationale lives in [`docs/adr/0001-caddy-tls-proxy.md`](docs/adr/0001-caddy-tls-proxy.md)
+and [`docs/adr/0014-github-sso-oauth2-proxy.md`](docs/adr/0014-github-sso-oauth2-proxy.md):
+Caddy terminates TLS and gates every browser route (except `/ping`) on
+GitHub SSO via oauth2-proxy (single-user allowlist); the opencode backend
+password stays machine-only — Caddy injects it after SSO, so you never
+type a shared password.
 
 One-time setup (from your laptop, needs AWS credentials):
 
 ```bash
-# store the web password (username is `opencode`)
+# 1. GitHub → Settings → Developer settings → OAuth Apps → New OAuth App:
+#    Homepage URL https://<domain>, callback https://<domain>/oauth2/callback.
+#    Copy the Client ID into github_oauth_client_id (tfvars, public).
+# 2. store the client secret (shown once — copy immediately)
+aws ssm put-parameter --region eu-west-1 --name /opencode/github-oauth-secret \
+  --type SecureString --value 'YOUR-OAUTH-CLIENT-SECRET'
+
+# 3. mint the session cookie secret (32-byte base64url, never in git)
+openssl rand -base64 32 | tr -- '+/' '-_' | tr -d '\n' | \
+  xargs -I{} aws ssm put-parameter --region eu-west-1 \
+    --name /opencode/oauth-cookie-secret --type SecureString --value '{}'
+
+# 4. keep the backend password too (machine-only, human never types it)
 aws ssm put-parameter --region eu-west-1 --name /opencode/server-password \
   --type SecureString --value 'YOUR-STRONG-PASSWORD'
 ```
+
+Then set `github_oauth_client_id` and `github_oauth_user` in
+`environments/prod.tfvars` and push to `main`.
+
+Rotating later: [`docs/credentials-rotation.md`](docs/credentials-rotation.md)
+(overwrite the parameter + one SSM command, no Terraform run).
 
 No DNS step needed: `domain_name` in `environments/prod.tfvars` uses
 `nip.io` wildcard DNS (`54-170-161-9.nip.io` resolves to the EIP), and Caddy
 gets a real Let's Encrypt certificate for it automatically.
 
 Push to `main`; the pipeline replaces the instance (EIP and DNS survive).
-After boot, open `https://54-170-161-9.nip.io` on your phone and log in as
-`opencode`. If the EIP ever changes, update `domain_name` to match
-(`<new-ip-with-dashes>.nip.io`).
+After boot, open `https://54-170-161-9.nip.io` on your phone and log in
+with GitHub (single allowed user). If the EIP ever changes, update
+`domain_name` to match (`<new-ip-with-dashes>.nip.io`) — and update the
+OAuth App callback URL to `https://<new-domain>/oauth2/callback`.
+
+Which version is live: every apply stamps the commit SHA as the
+`DeployedRef` tag on the instance and data disk (EC2 console → Tags) and
+in the `deployed_version` output. Compare with `git log --oneline -1` —
+same SHA means prod matches your checkout. App image versions ride along:
+they're pinned in `app/compose.yaml` at that commit.
 
 ## App stack (compose, testable locally)
 
@@ -141,12 +177,16 @@ Caddy + opencode run as containers from `app/compose.yaml` (images pinned
 [`docs/adr/0007-compose-deployment.md`](docs/adr/0007-compose-deployment.md).
 
 ```bash
-make test-boot   # full chain locally: compose up, HTTPS, 401 without creds, 200 with
+make test-boot   # full chain locally: compose up, HTTPS, 302 SSO gate, 200 with
 ```
 
-`test-boot` uses dummy env (never committed) and tears everything down
+`test-boot` uses dummy env (never committed, dummy OAuth values — proves
+SSO wiring, not the GitHub round-trip) and tears everything down
 afterwards. It proves installs, config, proxy, and auth — everything except
-Let's Encrypt issuance, which needs the public IP.
+Let's Encrypt issuance, which needs the public IP. `user_data.sh` changes
+are proven by shellcheck plus real deploys (the instance is cattle and the
+smoke test gates); the old AL2023-execution test was removed — measured
+~11 min cached, never worth running (see ADR-0007 amendment 4).
 
 Images stay pinned `tag@digest` in `app/compose.yaml`. Dependabot's
 `docker-compose` ecosystem proposes bumps (same 21-day cooldown policy);
@@ -168,8 +208,9 @@ through instance replacement (see
 ## Intrusion alerts
 
 Port 443 is public by design, so scanners will knock. Caddy access logs and
-sshd logs ship to CloudWatch; alarms email you on login probing (≥20 HTTP
-401s in 5 min) or SSH probing (≥3 failures in 5 min). Rationale:
+sshd logs ship to CloudWatch; alarms email you on SSO probing (≥20 HTTP
+403s in 5 min), backend login probing (≥20 HTTP 401s in 5 min), or SSH
+probing (≥3 failures in 5 min). Rationale:
 [`docs/adr/0006-intrusion-alerting.md`](docs/adr/0006-intrusion-alerting.md).
 Cost is cents per month (log ingestion + 2 alarms).
 
@@ -177,6 +218,31 @@ Setup: set the `ALERT_EMAIL` Actions variable (repo Settings → Secrets
 and variables → Actions → Variables tab), push, then click the SNS
 confirmation email (subscription stays `PendingConfirmation` until you do
 — no emails before that).
+
+Uptime is watched separately: Route 53 probes the unauthenticated
+`/ping` every 30s and pages after 3 failures (~$0.50/mo). Probes never
+touch opencode, so they stay out of the login-failure metric.
+
+## Git on the server (commits + push)
+
+Identity comes from `git_user_name` / `git_user_email` (already set in
+`environments/prod.tfvars`). Auth needs a Personal Access Token:
+
+```bash
+# 1. GitHub → Settings → Developer settings → Personal access tokens →
+#    Fine-grained token, contents read/write on your repos, no admin.
+# 2. store it (shown once — copy immediately)
+aws ssm put-parameter --region eu-west-1 --name /opencode/github-token \
+  --type SecureString --value 'YOUR-TOKEN'
+```
+
+The boot helper (`/usr/local/bin/opencode-git-setup.sh`) fetches it and
+configures the container at every boot. Rotating the token takes effect
+on the next deploy — token values never touch the repo or the pipeline.
+Full procedure (verify-before-revoke order):
+[`docs/credentials-rotation.md`](docs/credentials-rotation.md).
+
+Rationale: [`docs/adr/0010-git-auth.md`](docs/adr/0010-git-auth.md).
 
 ## Fully local deploy (Moto)
 
@@ -198,15 +264,60 @@ only boots registered images. Outputs (IPs, ids) are mock values.
 
 ## State backend (S3)
 
-Root state lives in S3 with native locking (`use_lockfile`, no DynamoDB).
-One-time bootstrap from your laptop:
+Root + bootstrap state live in S3 with native locking (`use_lockfile`,
+no DynamoDB), managed by the pipeline only. Laptops never init real
+backends and never read prod state — review the `tfplan-prod` artifact
+and job logs instead.
 
-```bash
-terraform -chdir=bootstrap init
-terraform -chdir=bootstrap apply
-cp backend.hcl.example backend.hcl  # fill bucket from bootstrap output
-terraform init -migrate-state -backend-config=backend.hcl
-```
+## Rebuilding from zero
 
-`backend.hcl` is gitignored. CI and pre-commit init with `-backend=false`,
-so no bucket or credentials are needed there.
+If everything (including state) is destroyed, one AWS admin with
+console access performs the seeds below. Everything else ships via the
+pipeline — there is intentionally no laptop path back.
+
+Have ready up front:
+
+- AWS account id, and a user who can create IAM roles, S3 buckets, and
+  SSM parameters.
+- This repo, with `environments/prod.tfvars` filled (`allowed_ssh_cidr`
+  as your `/32`). Leave `domain_name` empty on the first pass — the EIP
+  is not known yet.
+- Four secret values (never in git): a strong opencode password, a
+  GitHub personal access token, a GitHub OAuth App client secret, and a
+  32-byte oauth cookie secret.
+- The OIDC subject in `bootstrap/variables.tf` (`deploy_subject`) — it
+  is committed; EMU orgs need the numeric form, no slug pattern.
+- The bridge policy JSON in
+  [`docs/adr/0013-pipeline-bootstrap.md`](docs/adr/0013-pipeline-bootstrap.md).
+
+Steps:
+
+1. Console: create S3 bucket `opencode-prod-tfstate-<account>` with
+   versioning enabled. (The pipeline adopts it; the backend needs the
+   bucket to exist before the first init.)
+2. Console: create the GitHub OIDC provider
+   (`token.actions.githubusercontent.com`, audience `sts.amazonaws.com`)
+   and the `opencode-server-deploy` role with strict trust: `StringEquals`
+   on `aud` = `sts.amazonaws.com`, `sub` = the committed
+   `deploy_subject`, `ref` = `refs/heads/main`.
+3. Console: attach the inline `bridge` policy from ADR-0013 to the role.
+4. Repo Settings → Secrets and variables → Actions: `AWS_ROLE_ARN`
+   secret (the role ARN), `TF_STATE_BUCKET` variable (the bucket name),
+   optional `ALERT_EMAIL` variable.
+5. Seed the SSM SecureStrings `/opencode/server-password`,
+   `/opencode/github-token`, `/opencode/github-oauth-secret`, and
+   `/opencode/oauth-cookie-secret` (console or any admin machine —
+   values only, Terraform never manages secret values). Create the GitHub
+   OAuth App first (callback `https://<domain>/oauth2/callback` once the
+   domain is known — step 7; use a placeholder and fix it then).
+6. Push to `main`: `bootstrap` adopts the bucket/role/provider, converges
+   the managed policy, and deletes `bridge`; `deploy-prod` then builds
+   everything. Read the new EIP from the `terraform output` step log.
+7. Set `domain_name` to `<eip-with-dashes>.nip.io` in
+   `environments/prod.tfvars` and push again. The instance is replaced
+   (EIP and data volume survive); Caddy issues TLS and the smoke test
+   expects the 302 SSO gate.
+8. Click the SNS subscription confirmation email.
+
+Permanently manual: the two SSM secret values and the SNS confirmation
+click. Everything else — including this runbook's own trust — is code.

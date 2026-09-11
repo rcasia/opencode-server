@@ -1,11 +1,14 @@
 # ci — commit checks plus automatic prod deploy, one workflow graph.
 # Runs on every push to main and every PR.
 # Jobs: changes (paths-filter) -> pre-commit always, terraform + local only
-#   when infra/pipeline files changed, then deploy-prod (main pushes only,
-#   needs green-or-skipped checks): OIDC -> S3 init -> plan -> apply
-#   (only when the plan has changes) -> smoke test. PR runs skip deploy-prod
-#   (no secrets on PRs, never deploy). Docs-only pushes skip the slow jobs.
-#   All gates fail open: if the filter job breaks, everything runs.
+#   when infra/pipeline files changed, then bootstrap (main pushes only,
+#   needs green-or-skipped checks): OIDC -> S3 init -> adopt imports ->
+#   plan -> apply (only when the plan has changes). Then deploy-prod (same
+#   gate, needs bootstrap): OIDC -> S3 init -> plan -> apply (only when the
+#   plan has changes) -> smoke test. Then deploy-app for app-only changes.
+#   PR runs skip bootstrap/deploy-prod/deploy-app (no secrets on PRs, never
+#   deploy). Docs-only pushes skip the slow jobs. All gates fail open:
+#   if the filter job breaks, everything runs.
 # Requirements: AWS_ROLE_ARN secret + TF_STATE_BUCKET variable, else the
 #   deploy job fails red. Optional: ALERT_EMAIL variable (intrusion alarm
 #   recipient; absent = alarms exist but email no one). Rollback: revert on
@@ -28,6 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       infra: ${{ steps.filter.outputs.infra }}
+      app: ${{ steps.filter.outputs.app }}
       pipeline: ${{ steps.filter.outputs.pipeline }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -42,7 +46,10 @@ jobs:
               - '**/*.sh'
               - '**/*.tfvars'
               - '.terraform.lock.hcl'
-              - 'app/**'
+              - 'bootstrap/.terraform.lock.hcl'
+            app:
+              - 'app/compose.yaml'
+              - 'app/Caddyfile'
             pipeline:
               - '.github/**'
               - 'Makefile'
@@ -96,6 +103,8 @@ jobs:
     # Fail open: run unless the filter positively says docs-only.
     if: always() && (needs.changes.result != 'success' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.pipeline == 'true')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         shell: bash
@@ -132,9 +141,93 @@ jobs:
       - name: Terraform plan (moto, no AWS credentials)
         run: terraform plan -var-file=environments/local.tfvars -input=false
 
-  deploy-prod:
+      - name: Terraform apply (moto throwaway, compute only — Moto's
+          CloudWatch mock rejects PutMetricAlarm, so monitoring is plan-only)
+        run: terraform apply -target=module.compute -var-file=environments/local.tfvars -input=false -auto-approve
+
+      - name: Idempotence check (second plan on non-empty state must be empty)
+        run: |
+          terraform plan -target=module.compute -var-file=environments/local.tfvars -input=false -detailed-exitcode || exitcode=$?
+          if [ "${exitcode:-0}" != "0" ]; then echo "non-idempotent plan on existing state"; exit 1; fi
+
+  bootstrap:
+    # Pipeline-managed deploy trust (ADR-0013): bootstrap/ owns the OIDC
+    # provider + deploy role + policy and applies itself AS the role —
+    # never from a laptop. First run adopts the manual role/provider/bucket
+    # via imports, then deletes the one-time bridge policy, leaving only
+    # the TF-managed policy on the role.
     needs: [pre-commit, terraform, local, changes]
     if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.changes.result != 'success' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.pipeline == 'true') && needs.pre-commit.result == 'success' && (needs.terraform.result == 'success' || needs.terraform.result == 'skipped') && (needs.local.result == 'success' || needs.local.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: prod
+    concurrency:
+      group: prod-deploy
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: bootstrap
+    env:
+      AWS_REGION: eu-west-1
+      TF_STATE_KEY: opencode-server/bootstrap/terraform.tfstate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "1.13.3"
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform init (S3 backend)
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ env.TF_STATE_KEY }}" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+
+      - name: Adopt manual resources (one-time imports, idempotent)
+        run: |
+          terraform import aws_s3_bucket.state "${{ vars.TF_STATE_BUCKET }}" || true
+          terraform import aws_s3_bucket_versioning.state "${{ vars.TF_STATE_BUCKET }}" || true
+          terraform import aws_s3_bucket_server_side_encryption_configuration.state "${{ vars.TF_STATE_BUCKET }}" || true
+          terraform import aws_s3_bucket_public_access_block.state "${{ vars.TF_STATE_BUCKET }}" || true
+          terraform import aws_iam_role.deploy opencode-server-deploy || true
+          ACCT="$(aws sts get-caller-identity --query Account --output text)"
+          terraform import aws_iam_openid_connect_provider.github "arn:aws:iam::$ACCT:oidc-provider/token.actions.githubusercontent.com" || true
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        id: plan
+        run: |
+          terraform plan -input=false -out=tfplan -detailed-exitcode || exitcode=$?
+          exitcode=${exitcode:-0}
+          echo "exitcode=$exitcode" >> "$GITHUB_OUTPUT"
+          if [ "$exitcode" -eq 1 ]; then exit 1; fi
+
+      - name: Terraform apply
+        if: steps.plan.outputs.exitcode == '2'
+        run: terraform apply -input=false tfplan
+
+      - name: Remove bridge policy (TF-managed policy now covers everything)
+        if: steps.plan.outputs.exitcode == '2'
+        run: aws iam delete-role-policy --role-name opencode-server-deploy --policy-name bridge || true
+
+  deploy-prod:
+    needs: [pre-commit, terraform, local, bootstrap, changes]
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.changes.result != 'success' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.pipeline == 'true') && needs.pre-commit.result == 'success' && (needs.terraform.result == 'success' || needs.terraform.result == 'skipped') && (needs.local.result == 'success' || needs.local.result == 'skipped') && (needs.bootstrap.result == 'success' || needs.bootstrap.result == 'skipped')
     runs-on: ubuntu-latest
     environment: prod
     concurrency:
@@ -173,13 +266,20 @@ jobs:
             -backend-config="encrypt=true" \
             -backend-config="use_lockfile=true"
 
+      - name: Upload app bundle (S3, versioned — boots and rolling restarts read it)
+        run: |
+          BUCKET="$(terraform output -raw app_bundle_bucket 2>/dev/null || true)"
+          if [ -z "$BUCKET" ] || ! aws s3api head-bucket --bucket "$BUCKET" --region "${{ env.AWS_REGION }}" 2>/dev/null; then echo "no bundle bucket yet, skipping"; exit 0; fi
+          aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --region "${{ env.AWS_REGION }}"
+
       - name: Terraform validate
         run: terraform validate
 
       - name: Terraform plan
         id: plan
         run: |
-          terraform plan -var-file=environments/prod.tfvars -input=false -out=tfplan -detailed-exitcode || exitcode=$?
+          terraform plan -var-file=environments/prod.tfvars -var "deployed_version=$GITHUB_SHA" -input=false -out=tfplan -detailed-exitcode || exitcode=$?
           exitcode=${exitcode:-0}
           echo "exitcode=$exitcode" >> "$GITHUB_OUTPUT"
           if [ "$exitcode" -eq 1 ]; then exit 1; fi
@@ -200,8 +300,103 @@ jobs:
         if: steps.plan.outputs.exitcode == '2'
         run: terraform apply -input=false tfplan
 
-      - name: Smoke test (instance reaches running)
+      - name: Upload app bundle again (covers bucket-creating applies;
+          boots fetch it with retries)
+        if: steps.plan.outputs.exitcode == '2'
+        run: |
+          BUCKET="$(terraform output -raw app_bundle_bucket)"
+          aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --region "${{ env.AWS_REGION }}"
+
+      - name: Smoke test (site answers through TLS + SSO gate)
         if: steps.plan.outputs.exitcode == '2'
         run: |
           terraform output
           aws ec2 wait instance-running --instance-ids "$(terraform output -raw instance_id)" --region "${{ env.AWS_REGION }}"
+          URL="$(terraform output -raw opencode_url)"
+          case "$URL" in https://*) ;; *) echo "no public URL ($URL), skipping HTTP check"; exit 0;; esac
+          for _ in $(seq 1 30); do
+            RESP="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 10 "$URL" || true)"
+            case "$RESP" in
+              302*oauth2*) echo "site up: SSO gate at $URL ($RESP)"; exit 0;;
+              401*) echo "site up: legacy 401 auth gate at $URL"; exit 0;;
+            esac
+            sleep 20
+          done
+          echo "site never returned the SSO gate (last: $RESP)"; exit 1
+
+  deploy-app:
+    needs: [pre-commit, deploy-prod, changes]
+    # App-file changes only (infra changes already redeployed via deploy-prod,
+    # whose fresh boot pulls the bundle). Fail open like every other gate.
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.pre-commit.result == 'success' && needs.deploy-prod.result == 'success' && (needs.changes.result != 'success' || (needs.changes.outputs.app == 'true' && needs.changes.outputs.infra != 'true'))
+    runs-on: ubuntu-latest
+    environment: prod
+    concurrency:
+      group: prod-deploy
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    env:
+      AWS_REGION: eu-west-1
+      TF_STATE_KEY: opencode-server/prod/terraform.tfstate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "1.13.3"
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform init (S3 backend, for outputs)
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ env.TF_STATE_KEY }}" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+
+      - name: Rolling restart via SSM (no replacement, seconds of blip)
+        id: restart
+        run: |
+          IID="$(terraform output -raw instance_id)"
+          BUCKET="$(terraform output -raw app_bundle_bucket)"
+          echo "instance=$IID" >> "$GITHUB_OUTPUT"
+          CMD_ID="$(aws ssm send-command --instance-ids "$IID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=[\"cd /opt/opencode && aws s3 cp s3://$BUCKET/app/compose.yaml compose.yaml --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/Caddyfile Caddyfile --region ${{ env.AWS_REGION }} && docker compose pull && docker compose up -d && (/usr/local/bin/opencode-git-setup.sh || echo 'WARNING: git setup failed (non-blocking)')\"]" \
+            --query "Command.CommandId" --output text)"
+          echo "command=$CMD_ID" >> "$GITHUB_OUTPUT"
+          for _ in $(seq 1 60); do
+            STATUS="$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query Status --output text 2>/dev/null || echo Pending)"
+            echo "ssm status: $STATUS"
+            [ "$STATUS" = "Success" ] && break
+            case "$STATUS" in Failed|Cancelled|TimedOut) exit 1;; esac
+            sleep 5
+          done
+          [ "$STATUS" = "Success" ]
+
+      - name: Smoke test (site answers through TLS + SSO gate)
+        run: |
+          URL="$(terraform output -raw opencode_url)"
+          case "$URL" in https://*) ;; *) echo "no public URL ($URL), skipping HTTP check"; exit 0;; esac
+          for _ in $(seq 1 30); do
+            RESP="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 10 "$URL" || true)"
+            case "$RESP" in
+              302*oauth2*) echo "site up: SSO gate at $URL ($RESP)"; exit 0;;
+              401*) echo "site up: legacy 401 auth gate at $URL"; exit 0;;
+            esac
+            sleep 20
+          done
+          echo "site never returned the SSO gate (last: $RESP)"; exit 1

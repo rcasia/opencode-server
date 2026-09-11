@@ -21,6 +21,14 @@ repos:
     hooks:
       - id: actionlint
 
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      # -e SC2154: user_data.sh ${...} are Terraform template vars, not
+      # unassigned shell variables. Everything else is still checked.
+      - id: shellcheck
+        args: ["-S", "warning", "-e", "SC2154"]
+
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0
     hooks:

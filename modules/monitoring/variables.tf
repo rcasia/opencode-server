@@ -8,3 +8,9 @@ variable "alert_email" {
   type        = string
   default     = ""
 }
+
+variable "domain_name" {
+  description = "Public domain for the uptime probe. Empty disables it."
+  type        = string
+  default     = ""
+}

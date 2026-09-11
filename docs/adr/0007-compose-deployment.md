@@ -108,6 +108,24 @@ Correction to the above: Dependabot has a **separate `docker-compose`
 ecosystem** for compose files — the correct entry (now in
 `dependabot.yml`), same cooldown policy. Manual bumping stays as fallback.
 
+## Amendment 3 (2026-09-10, same day)
+
+Provisioning vs runtime split made explicit: `make test-boot` covers the
+compose runtime; `make test-bootstrap` (`app/Dockerfile.boot` + `stubs/`)
+executes the exact rendered `user_data.sh` in AL2023 with only cloud
+endpoints stubbed, and runs in CI inside the `local` job. Catches script
+bugs; EC2-only races still need the real box. Telemetry calls must never
+be fatal to boot (agent `fetch-config` warns and continues).
+
+## Amendment 4 (2026-09-11)
+
+`make test-bootstrap` removed entirely (script, `Dockerfile.boot`,
+`stubs/`, target, all references). Measured 645s wall cached — an
+11-minute gate nobody runs is no gate at all. `user_data.sh` is now
+proven by shellcheck + `validate` + real deploys: the instance is
+cattle (`user_data_replace_on_change`), and the smoke test gates every
+replacement. The EC2-only race caveat stands.
+
 ## Related Decisions
 
 - ADR-0001 (Caddy + localhost backend — kept, repackaged)

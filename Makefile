@@ -1,8 +1,4 @@
-.PHONY: help init fmt validate plan-prod apply-prod destroy-prod pre-commit local-up local-down plan-local apply-local destroy-local test-boot
-
-TF_VARS := environments/prod.tfvars
-BACKEND_CFG := $(wildcard backend.hcl)
-BACKEND_ARG := $(if $(BACKEND_CFG),-backend-config=backend.hcl)
+.PHONY: help fmt validate pre-commit local-up local-down plan-local apply-local destroy-local test-boot
 
 LOCAL_VARS := environments/local.tfvars
 LOCAL_BACKEND := environments/local.backend.hcl
@@ -11,13 +7,10 @@ MOTO_PORT := 5000
 MOTO_ENDPOINT := http://localhost:$(MOTO_PORT)
 
 help:
-	@echo "Targets: init | fmt | validate | plan-prod | apply-prod | destroy-prod | pre-commit"
+	@echo "Targets: fmt | validate | pre-commit"
 	@echo "         local-up | local-down | plan-local | apply-local | destroy-local"
 	@echo "         test-boot (full-chain local test of app/ via compose, dummy env)"
-	@echo "Prod deploys run ONLY via the pipeline; make plan-prod is a pre-flight plan."
-
-init:
-	terraform init -input=false $(BACKEND_ARG)
+	@echo "Prod is pipeline-only (no reads either): no plan, apply, or backend init from a laptop."
 
 fmt:
 	terraform fmt -recursive
@@ -25,20 +18,6 @@ fmt:
 validate:
 	terraform init -backend=false -input=false
 	terraform validate
-
-plan-prod:
-	terraform init -input=false $(BACKEND_ARG)
-	terraform fmt -recursive
-	terraform validate
-	terraform plan -var-file=$(TF_VARS) -input=false
-
-apply-prod:
-	terraform init -input=false $(BACKEND_ARG)
-	terraform apply -var-file=$(TF_VARS)
-
-destroy-prod:
-	@echo "Refusing without confirmation. Run:"
-	@echo "  terraform destroy -var-file=$(TF_VARS)"
 
 pre-commit:
 	pre-commit run --all-files

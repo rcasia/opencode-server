@@ -1,7 +1,43 @@
-# Caddy reverse proxy (ADR-0001, ADR-0007). {$DOMAIN} comes from the
-# container environment (app.env). `localhost` gets a local CA cert,
-# public names get automatic Let's Encrypt TLS.
+# Caddy reverse proxy (ADR-0001, ADR-0007, ADR-0014). {$DOMAIN} and
+# {$BASIC_AUTH} come from the container environment (app.env).
+# `localhost` gets a local CA cert, public names get automatic Let's
+# Encrypt TLS. The human gate is GitHub SSO via oauth2-proxy
+# (forward_auth); the opencode backend password is machine-only —
+# Caddy injects it as Basic auth after SSO, so the human never types a
+# shared password (issue #17).
 {$DOMAIN} {
+	# Unauthenticated liveness probe for the Route53 health check (and
+	# test-boot). Everything else goes through the SSO gate first, so
+	# probes never pollute the deny metric.
+	handle /ping {
+		respond "ok" 200
+	}
+	# oauth2-proxy's own endpoints (login, callback, sign_in) proxy
+	# straight through without an auth check — they ARE the login flow.
+	# X-Forwarded-Uri is required for correct redirects behind Caddy.
+	handle /oauth2/* {
+		reverse_proxy oauth2-proxy:4180 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Uri {uri}
+		}
+	}
+	handle {
+		# forward_auth automatically sets X-Forwarded-{For,Proto,Host,
+		# Method,Uri}; 401s (logged-out) redirect to the sign_in page
+		# instead of surfacing basic-auth to the browser.
+		forward_auth oauth2-proxy:4180 {
+			uri /oauth2/auth
+			header_up X-Real-IP {remote_host}
+			copy_headers X-Auth-Request-User X-Auth-Request-Email
+			@error status 401
+			handle_response @error {
+				redir * /oauth2/sign_in?rd={scheme}://{host}{uri}
+			}
+		}
+		reverse_proxy opencode:4096 {
+			header_up Authorization "Basic {$BASIC_AUTH}"
+		}
+	}
 	log {
 		output file /var/log/caddy/access.log {
 			roll_size 10mb
@@ -9,5 +45,4 @@
 		}
 		format json
 	}
-	reverse_proxy opencode:4096
 }
