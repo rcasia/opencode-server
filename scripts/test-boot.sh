@@ -349,6 +349,9 @@ RSID="$(docker compose exec -T caddy sh -c 'curl -s --max-time 10 -X POST -H "Au
 [ -n "$RSID" ] && [ "$RSID" != "null" ] || { echo "FAIL: could not create recovery probe session"; exit 1; }
 docker compose exec -T caddy sh -c 'curl -s --max-time 10 -X POST -H "Authorization: Basic $BASIC_AUTH" -H "Content-Type: application/json" -d '\''{"parts":[{"type":"text","text":"recovery probe"}],"model":{"providerID":"anthropic","modelID":"claude-sonnet-4-5"},"agent":"build","noReply":true}'\'' http://opencode-green:4096/session/'"$RSID"'/message' >/dev/null \
   || { echo "FAIL: could not seed dangling user message"; exit 1; }
+MGET_CODE="$(docker compose exec -T caddy sh -c 'curl -s --max-time 10 -o /dev/null -w "%{http_code}" -H "Authorization: Basic $BASIC_AUTH" http://opencode-green:4096/session/'"$RSID"'/message?limit=20' || true)"
+[ "$MGET_CODE" = "200" ] || { echo "FAIL: backend session message history returned '$MGET_CODE', want 200"; exit 1; }
+echo "PASS: backend session message history answers 200 (data route serves)"
 COMPOSE_DIR="$APP_DIR" ./switch.sh recover green
 RTITLE="$(docker compose exec -T caddy sh -c 'curl -s --max-time 10 -H "Authorization: Basic $BASIC_AUTH" http://opencode-green:4096/session/'"$RSID" | jq -r .title)"
 case "$RTITLE" in
