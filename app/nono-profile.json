@@ -1,0 +1,71 @@
+{
+  "extends": "default",
+  "meta": {
+    "name": "opencode-server",
+    "version": "1.0.0",
+    "description": "Pilot sandbox for the opencode web backend (issue #30, ADR-0020/ADR-0023). Allows the container workspace (/root workdir), opencode config/data/cache paths, and port 4096; egress filtered through the 'opencode' network profile (provider APIs + GitHub); docker.sock, IMDS, and credential paths denied. Agent git push keeps working through a single-file grant for the container git-credentials file."
+  },
+  "groups": {
+    "include": [
+      "node_runtime",
+      "python_runtime",
+      "user_caches_linux",
+      "linux_sysfs_read",
+      "git_config",
+      "unlink_protection",
+      "opencode_linux"
+    ]
+  },
+  "security": {
+    "signal_mode": "isolated",
+    "capability_elevation": false
+  },
+  "workdir": {
+    "access": "readwrite"
+  },
+  "filesystem": {
+    "allow": [
+      "$HOME/.config/opencode",
+      "$HOME/.cache/opencode",
+      "$HOME/.local/share/opencode",
+      "$HOME/.local/share/opentui",
+      "$HOME/.local/state/opencode",
+      "$TMPDIR"
+    ],
+    "read": [
+      "$HOME/.agents"
+    ],
+    "read_file": [
+      "$HOME/.git-credentials"
+    ],
+    "bypass_protection": [
+      "$HOME/.git-credentials"
+    ],
+    "deny": [
+      "/var/run/docker.sock"
+    ]
+  },
+  "network": {
+    "network_profile": "opencode",
+    "listen_port": [
+      4096
+    ]
+  },
+  "open_urls": {
+    "allow_origins": [
+      "https://github.com"
+    ],
+    "allow_localhost": true
+  },
+  "rollback": {
+    "exclude_patterns": [
+      "node_modules",
+      ".next",
+      "__pycache__",
+      "target"
+    ],
+    "exclude_globs": [
+      "*.tmp.[0-9]*.[0-9]*"
+    ]
+  }
+}
