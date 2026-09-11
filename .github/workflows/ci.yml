@@ -246,6 +246,11 @@ jobs:
       AWS_REGION: eu-west-1
       TF_STATE_KEY: opencode-server/prod/terraform.tfstate
       TF_VAR_alert_email: ${{ vars.ALERT_EMAIL }}
+      # Optional SSH door, never in git: the public key rides a Variable
+      # (not sensitive), the deployer /32 rides a Secret (masked in logs).
+      # Both unset = SSM-only, no port-22 ingress (the default).
+      TF_VAR_ssh_public_key: ${{ vars.SSH_PUBLIC_KEY }}
+      TF_VAR_allowed_ssh_cidr: ${{ secrets.ALLOWED_SSH_CIDR }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

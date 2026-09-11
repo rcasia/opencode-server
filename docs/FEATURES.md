@@ -103,7 +103,9 @@ rule 10).
   changes must be called out.
 - **SSM-first access, IMDSv2-only host.** Port 22 opens only when
   `ssh_public_key` is set (paired with an explicit `/32`); default and
-  SSM-only deploys expose no SSH ingress. EC2 metadata requires IMDSv2
+  SSM-only deploys expose no SSH ingress. The opt-in pair arrives via
+  pipeline config, never git: public key in the `SSH_PUBLIC_KEY` variable,
+  deployer `/32` in the `ALLOWED_SSH_CIDR` secret (masked in logs). EC2 metadata requires IMDSv2
   session tokens (hop limit 1). (ADR-0016)
 - **Supply-chain hygiene.** SHA-pinned actions, Dependabot (21-day
   cooldown) for actions/terraform/compose-image pins, `tag@digest`
