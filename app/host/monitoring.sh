@@ -56,8 +56,12 @@ cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<CW_EOF
   "logs": { "logs_collected": { "files": { "collect_list": [
     { "file_path": "/opt/opencode/logs/access.log", "log_group_name": "${NAME_PREFIX}-caddy", "log_stream_name": "{instance_id}" },
     { "file_path": "/var/log/secure", "log_group_name": "${NAME_PREFIX}-secure", "log_stream_name": "{instance_id}" },
-    { "file_path": "/var/log/cloud-init-output.log", "log_group_name": "${NAME_PREFIX}-boot", "log_stream_name": "{instance_id}" },
-    { "file_path": "/var/lib/docker/containers/*/*.log", "log_group_name": "${NAME_PREFIX}-containers", "log_stream_name": "{instance_id}" }
+    { "file_path": "/var/log/cloud-init-output.log", "log_group_name": "${NAME_PREFIX}-boot", "log_stream_name": "{instance_id}" }
+    // NOTE (issue #55): container stdout is DELIBERATELY not shipped.
+    // The agent prints prompts, file contents, and API responses, so
+    // off-host retention would keep echoed secrets readable account-wide.
+    // Backend logs stay local only (`docker logs`, bounded 10m x3 by the
+    // daemon config in user_data.sh).
   ] } } }
 CW_EOF
 /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json \

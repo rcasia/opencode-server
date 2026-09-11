@@ -33,10 +33,10 @@ resource "aws_cloudwatch_log_group" "boot" {
   retention_in_days = 30
 }
 
-resource "aws_cloudwatch_log_group" "containers" {
-  name              = "${var.name_prefix}-containers"
-  retention_in_days = 30
-}
+# NOTE (issue #55): no containers log group on purpose. Agent stdout
+# carries prompts, code, and echoed secrets; shipping it off-host would
+# retain them account-wide. Backend logs stay local (`docker logs`,
+# daemon-capped 10m x3). No metric filter ever read this group.
 
 resource "aws_cloudwatch_log_metric_filter" "login_401" {
   name           = "${var.name_prefix}-login-401"
