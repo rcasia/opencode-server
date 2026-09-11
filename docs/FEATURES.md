@@ -88,6 +88,15 @@ rule 10).
 
 - **Cheap by design.** Single AZ public subnet, no NAT, `t3.small`, EIP
   attached, with low-cost probes and encrypted persistent storage.
+- **Cost guardrail.** A monthly AWS cost budget (default $25,
+  `monthly_budget_limit_usd`) pages the same SNS topic as the intrusion
+  alarms on actual spend ≥100% and on forecasted spend ≥100%. Current
+  burn ≈ $19–22/mo in eu-west-1: `t3.small` ≈ $15–17, root 30 GB gp3 ≈
+  $2.4–2.7, data 10 GB gp3 ≈ $0.8–0.9, Route53 `/ready` probe ≈ $0.50,
+  S3 (bundle/audit/logs) + CloudWatch logs cents. The $25 default covers
+  that burn with headroom for price drift; lower it via the var if the
+  burn drops. Rule (AGENTS.md 8): any change that adds recurring cost
+  must be called out in the push — never silently grow the bill.
 - **SSM-first access, IMDSv2-only host.** Port 22 opens only when an
   explicit /32 SSH configuration is supplied; otherwise use SSM.
 - **Supply-chain hygiene.** SHA-pinned actions, Dependabot for dependency
