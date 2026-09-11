@@ -337,3 +337,48 @@ Steps:
 
 Permanently manual: the two SSM secret values and the SNS confirmation
 click. Everything else — including this runbook's own trust — is code.
+
+## Out-of-band host / missing EBS volumes
+
+The host is cattle (`user_data_replace_on_change = true`): any user_data
+change (new commit SHA in tags is not one, but domain/secret-path/volume
+wiring changes are) replaces the instance, and the old root volume is
+deleted with it. The separate data disk (`aws_ebs_volume.data`) survives
+by design. Consequences an operator will meet in the console:
+
+- Viewing a terminated instance's Storage tab fails to describe its old
+  root volume — expected, not an error to fix. Note the volume ID and
+  move on.
+- `Failed to describe` on the **data** volume ID means it was deleted
+  outside Terraform (nothing in this repo deletes it: no literal volume
+  IDs exist in git, and the pipeline plan never destroys
+  `module.compute.aws_ebs_volume.data`). Treat it as a data-loss /
+  state-drift event, never as a prompt to re-apply blindly.
+
+Verify from any admin machine (read-only; do not run writes from here):
+
+```bash
+aws ec2 describe-instances --region eu-west-1 \
+  --instance-ids i-01f46c22f45ca3244 \
+  --query 'Reservations[].Instances[].[State.Name,InstanceType,SubnetId,BlockDeviceMappings]'
+aws ec2 describe-volumes --region eu-west-1 \
+  --filters Name=tag:Project,Values=opencode \
+  --query 'Volumes[].[VolumeId,State,AvailabilityZone,Size,Attachments]'
+aws ec2 describe-snapshots --region eu-west-1 --owner-ids self \
+  --query 'Snapshots[].[SnapshotId,VolumeId,StartTime,State]'
+```
+
+Reconcile only after the three reads agree on what is live:
+
+- If the running host is hand-built and expendable: terminate it in the
+  console, then push an empty commit. The next `deploy-prod` plan creates
+  a fresh host + fresh (empty) data disk and re-attaches the EIP. The
+  plan must show `aws_ebs_volume.data` created, never destroyed.
+- If the running host holds state worth keeping: do NOT import it as
+  `module.compute.aws_instance.server` and re-apply — the user_data diff
+  would schedule the host's own replacement. Snapshot its disks first,
+  then decide (adopt vs. cut over) with the snapshot IDs in hand.
+- Never `terraform state rm` the volume or attachment to "clear" the
+  error: that orphans the decision the next plan has to make. Remove
+  stale entries only for resources confirmed terminated/deleted, and only
+  via the pipeline workspace, never a laptop backend.
