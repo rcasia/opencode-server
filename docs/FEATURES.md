@@ -45,7 +45,9 @@ rule 10).
 
 - **Phone-friendly HTTPS opencode.** Caddy terminates TLS and proxies to
   `opencode web`; passwordless GitHub SSO is the human gate while the
-  SSM-backed backend password stays machine-only.
+  SSM-backed backend password stays machine-only. SSO sessions re-validate
+  with GitHub hourly (`cookie_refresh 1h`) and expire after 24h, so a
+  revoked grant or rotated client secret ends sessions within the hour.
 - **Provider API credentials.** Provider API keys are operator-created
   SSM SecureStrings. Terraform stores only parameter names. The instance
   role can read only the configured provider parameters; boot fetches them
@@ -107,7 +109,9 @@ rule 10).
 
 - **Pipeline-owned everything.** The deploy role, OIDC provider, and
   policy shards live in `bootstrap/` and are applied by the `bootstrap` CI
-  job.
+  job. The role's `SendCommand` reaches only instances tagged for this
+  stack (Project/Environment tag condition); command reads stay wildcard
+  (they authorize on no instance ARN). Rationale: issue #41.
 - **Pipeline-only ops, no reads either.** No laptop plans, applies,
   backends, outputs, shells, or console edits.
 - **Secrets discipline.** Secrets live in SSM SecureStrings or GitHub

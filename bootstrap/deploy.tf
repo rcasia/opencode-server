@@ -528,10 +528,41 @@ data "aws_iam_policy_document" "deploy_observe" {
     resources = ["*"]
   }
 
+  # RollingRestart (issue #41): SendCommand is split in two. The document
+  # half is unconditional (documents carry no resource tags, so a tag
+  # condition would deny it); the target half allows only instances
+  # tagged Project/Environment for this stack (root default_tags put
+  # them on the EC2 host). A compromised workflow can therefore run
+  # root commands on this server only — never on sibling instances —
+  # and `cat` of the per-service env files stays a host-local blast
+  # radius. Note this does NOT stop secret reads on the host itself:
+  # SendCommand output returns whatever the command prints, so the
+  # "never sees secrets" wording elsewhere means Parameter Store only.
   statement {
-    sid = "RollingRestart"
+    sid       = "RollingRestartSendDocument"
+    actions   = ["ssm:SendCommand"]
+    resources = ["arn:aws:ssm:${var.aws_region}::document/AWS-RunShellScript"]
+  }
+
+  statement {
+    sid       = "RollingRestartSendTargets"
+    actions   = ["ssm:SendCommand"]
+    resources = ["arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/*"]
+    condition {
+      test     = "StringEquals"
+      variable = "ssm:resourceTag/Project"
+      values   = [var.project]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "ssm:resourceTag/Environment"
+      values   = [var.environment]
+    }
+  }
+
+  statement {
+    sid = "RollingRestartRead"
     actions = [
-      "ssm:SendCommand",
       "ssm:GetCommandInvocation",
       "ssm:ListCommands",
       "ssm:ListCommandInvocations",

@@ -41,8 +41,12 @@ resource "aws_iam_role_policy" "opencode_password" {
 }
 
 # SSO secrets (ADR-0014): the instance alone can read the GitHub OAuth
-# client secret and the oauth2-proxy cookie secret. Nothing else (deploy
-# role, CI, state) ever sees these values — same shape as ADR-0004.
+# client secret and the oauth2-proxy cookie secret via SSM Parameter
+# Store. Nothing else (deploy role, CI, state) holds GetParameter for
+# them — same shape as ADR-0004. This is NOT a no-execute boundary:
+# the deploy role's scoped SendCommand runs root commands on this host
+# (issue #41), so command output can still exfiltrate whatever the host
+# holds; the guarantee is Parameter Store scoping only.
 data "aws_iam_policy_document" "oauth_secrets" {
   statement {
     actions = ["ssm:GetParameter"]
