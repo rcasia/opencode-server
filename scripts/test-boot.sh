@@ -200,7 +200,10 @@ sandbox() {
   docker exec -t "$(docker compose ps -q opencode-blue)" "$SANDBOX_NONO" run --silent --allow-cwd --profile "$SANDBOX_PROFILE" -- "$@"
 }
 whyquery() {
-  docker compose exec -T opencode-blue "$SANDBOX_NONO" why --profile "$SANDBOX_PROFILE" "$@" --json 2>&1
+  # --allow-cwd mirrors the backend entrypoint: without it the
+  # profile's workdir grant never applies and every workspace query
+  # answers denied.
+  docker compose exec -T opencode-blue "$SANDBOX_NONO" why --profile "$SANDBOX_PROFILE" --allow-cwd "$@" --json 2>&1
 }
 # Enforcement probes only mean something where the sandbox can
 # initialize (Landlock on a native kernel). Where it cannot (e.g. ARM
