@@ -54,13 +54,14 @@ rm -rf /tmp/aws /tmp/awscliv2.zip
 # `latest`: COMPOSE_VERSION and the per-arch sha256 below bump together as
 # one reviewed change (hashes are the release's published .sha256 assets).
 dnf install -y docker-compose-plugin || {
-  # Bare $VAR (no braces): templatefile only interpolates ${...}, so these
-  # pass through untouched, and shellcheck tracks them normally.
+  # Bare $VAR (no braces): templatefile only interpolates dollar-brace
+  # sequences, so these pass through untouched, and shellcheck tracks
+  # them normally.
   COMPOSE_VERSION="v5.5.1"
   ARCH=$(uname -m)
   case "$ARCH" in
-    x86_64) EXPECTED_SHA256="db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576" ;;
-    aarch64) EXPECTED_SHA256="732e3a84c1a0f67256ce80bc2598a24546b10ca05f9faa97efceb1171ece2ef7" ;;
+    x86_64) EXPECTED_SHA256="db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576" ;; # pragma: allowlist secret -- pinned release hash, not a credential
+    aarch64) EXPECTED_SHA256="732e3a84c1a0f67256ce80bc2598a24546b10ca05f9faa97efceb1171ece2ef7" ;; # pragma: allowlist secret -- pinned release hash, not a credential
     *) echo "unsupported arch $ARCH for compose fallback"; exit 1 ;;
   esac
   mkdir -p /usr/local/lib/docker/cli-plugins

@@ -341,4 +341,3 @@ resource "aws_cloudtrail" "account" {
 
   depends_on = [aws_s3_bucket_policy.audit]
 }
-}
