@@ -527,27 +527,34 @@ data "aws_iam_policy_document" "deploy_observe" {
     resources = ["*"]
   }
 
-  # Account audit trail (modules/monitoring): explicit action list on the
-  # project trail ARN (no service-wide wildcard). CloudTrail tags trails
-  # via AddTags/RemoveTags/ListTags — TagResource/UntagResource do not
-  # exist in this namespace, and default_tags on the trail makes CreateTrail
-  # call AddTags (a wrong name fails the whole apply mid-flight).
+  # Account audit trail (modules/monitoring): mutating calls scope to the
+  # project trail ARN. Reads stay wildcard: CloudTrail list/describe calls
+  # do not authorize against the trail ARN (a scoped DescribeTrails still
+  # denies with "no identity-based policy allows"), same reads-are-wildcard
+  # shape as ComputeRead above.
   statement {
     sid = "Trail"
     actions = [
       "cloudtrail:CreateTrail",
       "cloudtrail:DeleteTrail",
       "cloudtrail:UpdateTrail",
-      "cloudtrail:GetTrail",
-      "cloudtrail:GetTrailStatus",
       "cloudtrail:StartLogging",
       "cloudtrail:StopLogging",
-      "cloudtrail:DescribeTrails",
       "cloudtrail:AddTags",
       "cloudtrail:RemoveTags",
-      "cloudtrail:ListTags",
     ]
     resources = ["arn:aws:cloudtrail:${var.aws_region}:*:trail/${var.project}-*"]
+  }
+
+  statement {
+    sid = "TrailRead"
+    actions = [
+      "cloudtrail:GetTrail",
+      "cloudtrail:GetTrailStatus",
+      "cloudtrail:DescribeTrails",
+      "cloudtrail:ListTags",
+    ]
+    resources = ["*"]
   }
 }
 
