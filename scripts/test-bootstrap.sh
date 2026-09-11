@@ -42,8 +42,22 @@ for mod in state['values']['root_module'].get('child_modules', []):
 VOLSFX="$(echo "$VOLID" | tr -d '-')"
 trap 'rm -f app/.rendered-user-data.sh' EXIT
 
+# Registry cache: unchanged layers rebuild in seconds; changed tail re-runs.
+# BOOT_TEST_CACHE=1 enables it (CI), BOOT_TEST_PUSH=1 publishes the image.
+IMAGE="${BOOT_TEST_IMAGE:-ghcr.io/rcasia/opencode-boot-test}"
+CACHE_ARGS=()
+PUSH_ARGS=(-t opencode-boot-test)
+if [ "${BOOT_TEST_CACHE:-0}" = "1" ]; then
+  CACHE_ARGS=(--cache-from "type=registry,ref=$IMAGE:buildcache" --cache-to "type=registry,ref=$IMAGE:buildcache,mode=max")
+fi
+if [ "${BOOT_TEST_PUSH:-0}" = "1" ]; then
+  PUSH_ARGS=(--push -t opencode-boot-test -t "$IMAGE:latest")
+fi
+
 echo "==> Building bootstrap test image (volume $VOLID)"
-docker build -f app/Dockerfile.boot \
-  --build-arg "VOLSFX=$VOLSFX" --build-arg DOMAIN=boot.test \
-  -t opencode-boot-test .
+# (bash 3/macOS: empty-array expansion trips `set -u`, so scoped off here)
+set +u
+docker buildx build -f app/Dockerfile.boot "${CACHE_ARGS[@]}" "${PUSH_ARGS[@]}" \
+  --build-arg "VOLSFX=$VOLSFX" --build-arg DOMAIN=boot.test .
+set -u
 echo "BOOTSTRAP TEST PASSED"

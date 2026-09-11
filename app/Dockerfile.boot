@@ -1,25 +1,27 @@
-# Bootstrap test (ADR-0007): executes the EXACT rendered user_data.sh
-# (extracted from applied mock state by scripts/test-bootstrap.sh) in
-# Amazon Linux 2023 with only cloud endpoints stubbed:
-#   aws            -> answers the SSM get-parameter call with a dummy
-#   systemctl      -> logged, always succeeds (no systemd in build)
-#   amazon-cloudwatch-agent-ctl -> logged, succeeds (fetch needs IMDS)
-#   docker         -> daemon calls faked; version/config run for real
-#   mount          -> logged, succeeds (no privileges in build)
-# A fake EBS device (ext4 file + by-id symlink) exercises the real
-# format-once/mount/fstab logic. Catches script bugs, not EC2 races.
-FROM amazonlinux:2023
-ARG VOLSFX=vol0testvolume0
-ARG DOMAIN=boot.test
-RUN dnf install -y -q shadow-utils e2fsprogs
+# Stage 1: published test environment (ghcr.io/rcasia/opencode-boot-test).
+# Pre-installs everything user_data installs, so the script under test hits
+# fast no-ops. Rebuilt rarely (only when this file changes); reused via the
+# registry cache on every run.
+FROM amazonlinux:2023 AS bootenv
+RUN dnf install -y -q docker git tmux htop jq unzip tar rsyslog amazon-cloudwatch-agent shadow-utils e2fsprogs
+RUN dnf install -y -q docker-compose-plugin || true
 COPY app/stubs/ /opt/stubs/
-COPY app/.rendered-user-data.sh /opt/test-user-data.sh
-COPY app/compose.yaml app/Caddyfile /fixtures/
-ENV PATH=/opt/stubs:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 RUN chmod +x /opt/stubs/* \
  && useradd -m ec2-user \
- && dd if=/dev/zero of=/disk.img bs=1M count=100 status=none \
- && mkdir -p /dev/disk/by-id \
+ && dd if=/dev/zero of=/disk.img bs=1M count=100 status=none
+ENV PATH=/opt/stubs:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Stage 2: the actual test. Runs the exact rendered user_data with only
+# cloud endpoints stubbed (aws SSM, systemctl, mount, Docker daemon), then
+# asserts the contract. Catches script bugs, not EC2 races.
+FROM bootenv AS test
+ARG VOLSFX=vol0testvolume0
+ARG DOMAIN=boot.test
+COPY app/.rendered-user-data.sh /opt/test-user-data.sh
+COPY app/compose.yaml app/Caddyfile /fixtures/
+# NOTE: /dev does not persist across RUN layers, so the fake EBS device
+# must be linked in the same layer that executes the script.
+RUN mkdir -p /dev/disk/by-id \
  && ln -s /disk.img "/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${VOLSFX}" \
  && bash /opt/test-user-data.sh
 RUN test -f /opt/opencode/compose.yaml \

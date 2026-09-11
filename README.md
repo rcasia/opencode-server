@@ -167,6 +167,12 @@ container (`app/Dockerfile.boot`) with only cloud endpoints stubbed
 (SSM, systemd, mount, Docker daemon). Catches script bugs deterministically;
 EC2-only races (attach timing) still need the real box.
 
+Speed: the Dockerfile builds in two stages — `bootenv` (all installs,
+published to GHCR, rebuilt rarely) and `test` (the script, re-runs in a
+few minutes). Registry layer caching means unchanged inputs rebuild in
+seconds, locally and in CI. First pull creates the `opencode-boot-test`
+package — set it private.
+
 Images stay pinned `tag@digest` in `app/compose.yaml`. Dependabot's
 `docker-compose` ecosystem proposes bumps (same 21-day cooldown policy);
 merge with `make test-boot` green. Manual fallback:

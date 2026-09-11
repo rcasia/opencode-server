@@ -96,6 +96,9 @@ jobs:
     # Fail open: run unless the filter positively says docs-only.
     if: always() && (needs.changes.result != 'success' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.pipeline == 'true')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     defaults:
       run:
         shell: bash
@@ -141,7 +144,14 @@ jobs:
           terraform plan -target=module.compute -var-file=environments/local.tfvars -input=false -detailed-exitcode || exitcode=$?
           if [ "${exitcode:-0}" != "0" ]; then echo "non-idempotent plan on existing state"; exit 1; fi
 
-      - name: Bootstrap test (rendered user_data executes in AL2023)
+      - name: Log in to GHCR (bootstrap image cache)
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Bootstrap test (rendered user_data executes in AL2023;
+          registry-cached base, script re-runs in minutes)
+        env:
+          BOOT_TEST_CACHE: 1
+          BOOT_TEST_PUSH: 1
         run: ./scripts/test-bootstrap.sh
 
   deploy-prod:
