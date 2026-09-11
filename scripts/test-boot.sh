@@ -129,4 +129,15 @@ case "$ROOT_AFTER" in
   302*oauth2*) echo "PASS: green serves through the edge, SSO gate intact ($ROOT_AFTER)";;
   *) echo "FAIL: expected 302 to /oauth2/* after switch, got $ROOT_AFTER"; exit 1;;
 esac
+echo "==> Probing constrained recovery (issue #32: detect/mark + diff-gated retry)"
+RSID="$(docker compose exec -T caddy sh -c 'curl -s --max-time 10 -X POST -H "Authorization: Basic $BASIC_AUTH" -H "Content-Type: application/json" -d '\''{"title":"recovery-probe"}'\'' http://opencode-green:4096/session' | jq -r .id)"
+[ -n "$RSID" ] && [ "$RSID" != "null" ] || { echo "FAIL: could not create recovery probe session"; exit 1; }
+docker compose exec -T caddy sh -c 'curl -s --max-time 10 -X POST -H "Authorization: Basic $BASIC_AUTH" -H "Content-Type: application/json" -d '\''{"parts":[{"type":"text","text":"recovery probe"}],"model":{"providerID":"anthropic","modelID":"claude-sonnet-4-5"},"agent":"build","noReply":true}'\'' http://opencode-green:4096/session/'"$RSID"'/message' >/dev/null \
+  || { echo "FAIL: could not seed dangling user message"; exit 1; }
+COMPOSE_DIR="$APP_DIR" ./switch.sh recover green
+RTITLE="$(docker compose exec -T caddy sh -c 'curl -s --max-time 10 -H "Authorization: Basic $BASIC_AUTH" http://opencode-green:4096/session/'"$RSID" | jq -r .title)"
+case "$RTITLE" in
+  "[interrupted-by-deploy]"*) echo "PASS: interrupted session marked ($RTITLE), empty-diff retry fired";;
+  *) echo "FAIL: recovery probe session not marked, title='$RTITLE'"; exit 1;;
+esac
 echo "ALL BOOT CHECKS PASSED"
