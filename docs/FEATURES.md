@@ -49,6 +49,12 @@ rule 10).
   sessions, images, workspace, and certs survive replacement.
 - **Agent git identity.** The agent commits/pushes as the operator:
   identity in vars, PAT in SSM, applied by an idempotent boot helper.
+- **Sandboxed backend.** Both backend colors run `opencode web` under
+  `nono` (Landlock) with the checked-in `app/nono-profile.json`:
+  workspace + port 4096 + provider/GitHub egress allowed; IMDS,
+  credential paths, and `docker.sock` denied. The pinned nono RPM rides
+  the S3 bundle (CI verifies SHA, boot installs from disk). Agent
+  container builds move out of the sandbox. Rationale: ADR-0020, ADR-0023.
 
 ## Watch
 
