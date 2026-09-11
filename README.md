@@ -112,6 +112,10 @@ gh variable list --repo rcasia/opencode-server
 |---|---|---|
 | `AWS_ROLE_ARN` | Secret | The deploy role ARN from the one-time setup (pipeline adoption never changes it): repo Settings → Secrets and variables → Actions → Secrets tab → New repository secret. |
 | `TF_STATE_BUCKET` | Variable | The state bucket name (`opencode-prod-tfstate-<account-id>`). Same Settings page → Variables tab → New repository variable. |
+| `DOMAIN_NAME` | Secret | The public hostname (your `<eip-with-dashes>.nip.io`); overrides the `code.example.com` placeholder in `prod.tfvars` via `TF_VAR_domain_name`. |
+| `GITHUB_OAUTH_CLIENT_ID` | Secret | Client ID of your GitHub OAuth App; overrides the empty placeholder via `TF_VAR_github_oauth_client_id`. |
+| `GITHUB_OAUTH_USER` | Secret | The one GitHub username allowed through SSO; overrides the empty placeholder via `TF_VAR_github_oauth_user`. |
+| `GIT_USER_NAME` / `GIT_USER_EMAIL` | Secrets | Agent commit identity; override the empty placeholders via `TF_VAR_git_user_name` / `TF_VAR_git_user_email`. |
 
 Also required before the first real apply (in code, not in Actions):
 `allowed_ssh_cidr` in `environments/prod.tfvars` must be your IP with
@@ -140,7 +144,9 @@ One-time setup (from your laptop, needs AWS credentials):
 ```bash
 # 1. GitHub → Settings → Developer settings → OAuth Apps → New OAuth App:
 #    Homepage URL https://<domain>, callback https://<domain>/oauth2/callback.
-#    Copy the Client ID into github_oauth_client_id (tfvars, public).
+#    Store the Client ID in the GITHUB_OAUTH_CLIENT_ID repo secret and your
+#    username in GITHUB_OAUTH_USER (never in git — the tfvars placeholders
+#    fail closed).
 # 2. store the client secret (shown once — copy immediately)
 aws ssm put-parameter --region eu-west-1 --name /opencode/github-oauth-secret \
   --type SecureString --value 'YOUR-OAUTH-CLIENT-SECRET'
@@ -155,21 +161,22 @@ aws ssm put-parameter --region eu-west-1 --name /opencode/server-password \
   --type SecureString --value 'YOUR-STRONG-PASSWORD'
 ```
 
-Then set `github_oauth_client_id` and `github_oauth_user` in
-`environments/prod.tfvars` and push to `main`.
+Then set the `DOMAIN_NAME`, `GITHUB_OAUTH_CLIENT_ID`, and
+`GITHUB_OAUTH_USER` repo secrets and push to `main`.
 
 Rotating later: [`docs/credentials-rotation.md`](docs/credentials-rotation.md)
 (overwrite the parameter + one SSM command, no Terraform run).
 
-No DNS step needed: `domain_name` in `environments/prod.tfvars` uses
-`nip.io` wildcard DNS (`54-170-161-9.nip.io` resolves to the EIP), and Caddy
-gets a real Let's Encrypt certificate for it automatically.
+No DNS step needed: `domain_name` defaults to the `code.example.com`
+placeholder and the operator overrides it with the `DOMAIN_NAME` secret
+holding `<eip-with-dashes>.nip.io` (wildcard DNS resolves it to the EIP),
+and Caddy gets a real Let's Encrypt certificate for it automatically.
 
 Push to `main`; the pipeline replaces the instance (EIP and DNS survive).
-After boot, open `https://54-170-161-9.nip.io` on your phone and log in
-with GitHub (single allowed user). If the EIP ever changes, update
-`domain_name` to match (`<new-ip-with-dashes>.nip.io`) — and update the
-OAuth App callback URL to `https://<new-domain>/oauth2/callback`.
+After boot, open `https://<your-eip-with-dashes>.nip.io` on your phone and
+log in with GitHub (single allowed user). If the EIP ever changes, update
+the `DOMAIN_NAME` secret to match (`<new-ip-with-dashes>.nip.io`) — and
+update the OAuth App callback URL to `https://<new-domain>/oauth2/callback`.
 
 Which version is live: every apply stamps the commit SHA as the
 `DeployedRef` tag on the instance and data disk (EC2 console → Tags) and
@@ -322,10 +329,10 @@ Steps:
 6. Push to `main`: `bootstrap` adopts the bucket/role/provider, converges
    the managed policy, and deletes `bridge`; `deploy-prod` then builds
    everything. Read the new EIP from the `terraform output` step log.
-7. Set `domain_name` to `<eip-with-dashes>.nip.io` in
-   `environments/prod.tfvars` and push again. The instance is replaced
-   (EIP and data volume survive); Caddy issues TLS and the smoke test
-   expects the 302 SSO gate.
+7. Set the `DOMAIN_NAME` repo secret to `<eip-with-dashes>.nip.io`
+   (read from the `terraform output` step log) and push again. The instance
+   is replaced (EIP and data volume survive); Caddy issues TLS and the
+   smoke test expects the 302 SSO gate.
 8. Click the SNS subscription confirmation email.
 
 Permanently manual: the two SSM secret values and the SNS confirmation

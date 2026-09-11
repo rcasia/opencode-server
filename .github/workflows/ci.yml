@@ -202,6 +202,14 @@ jobs:
       AWS_REGION: eu-west-1
       TF_STATE_KEY: opencode-server/prod/terraform.tfstate
       TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+      # Operator PII for the public repo (see #26): committed prod.tfvars
+      # holds placeholders that fail closed; real values arrive here.
+      # Unset secrets expand to "" which matches the placeholder defaults.
+      TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
+      TF_VAR_github_oauth_client_id: ${{ secrets.GITHUB_OAUTH_CLIENT_ID }}
+      TF_VAR_github_oauth_user: ${{ secrets.GITHUB_OAUTH_USER }}
+      TF_VAR_git_user_name: ${{ secrets.GIT_USER_NAME }}
+      TF_VAR_git_user_email: ${{ secrets.GIT_USER_EMAIL }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
