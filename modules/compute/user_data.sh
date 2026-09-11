@@ -94,7 +94,9 @@ cat > /usr/local/bin/opencode-git-setup.sh <<'GIT_EOF'
 # Never prints the token (no set -x here).
 set -euo pipefail
 COMPOSE="docker compose -f /opt/opencode/compose.yaml"
-for _ in $(seq 1 60); do
+# First pulls can take a while; git config must be present straight after
+# deploy, so wait up to 10 min rather than racing the pull.
+for _ in $(seq 1 120); do
   $COMPOSE ps --status running --services 2>/dev/null | grep -q '^opencode$' && break
   sleep 5
 done
@@ -103,6 +105,8 @@ GH_PAT=$(aws ssm get-parameter --name "${github_token_parameter}" --with-decrypt
 [ -n "${git_user_email}" ] && $COMPOSE exec -T opencode git config --global user.email "${git_user_email}" || true
 $COMPOSE exec -T opencode git config --global credential.helper store
 printf 'https://x-access-token:%s@github.com\n' "$GH_PAT" | $COMPOSE exec -T -i opencode sh -c 'cat > /root/.git-credentials && chmod 600 /root/.git-credentials' # pragma: allowlist secret -- %s placeholder, token arrives via SSM at runtime
+# Verify it stuck: a silent miss here is "no git config" downstream.
+$COMPOSE exec -T opencode git config --global credential.helper | grep -q '^store$' || { echo "WARNING: git credential helper not applied" >&2; exit 1; }
 GIT_EOF
 chmod +x /usr/local/bin/opencode-git-setup.sh
 /usr/local/bin/opencode-git-setup.sh || echo "WARNING: git setup failed; re-run /usr/local/bin/opencode-git-setup.sh" >&2

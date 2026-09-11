@@ -31,7 +31,8 @@ RUN test -f /opt/opencode/compose.yaml \
  && grep -q 'enable --now docker' /var/log/stub-systemctl.log \
  && grep -q 'enable --now rsyslog' /var/log/stub-systemctl.log \
  && grep -q 'compose up -d' /var/log/stub-docker.log \
- && grep -q 'git config' /var/log/stub-docker.log \
+  && grep -q 'git config' /var/log/stub-docker.log \
+  && grep -q 'credential.helper' /var/log/stub-docker.log \
  && grep -q '/var/lib/docker' /etc/fstab \
  && jq empty /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json \
  && cd /opt/opencode && docker compose config --quiet

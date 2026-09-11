@@ -77,6 +77,10 @@ git health.
   waits up to 5 min for the container, then configures or warns.
 - `app/stubs/docker` fakes `exec`/`ps` so the bootstrap build covers the
   helper wiring; assertion greps the stub log.
+- Correction 2026-09-11: the wait is 10 min (slow first pulls won the
+  5-min race), the helper verifies `credential.helper` stuck, and the
+  `deploy-app` SSM step re-runs the helper — container replacement wipes
+  gitconfig, so boot-only application left app deploys without git auth.
 
 ## Related Decisions
 
