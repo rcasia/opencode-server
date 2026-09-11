@@ -27,6 +27,18 @@ mount -a
 systemctl enable --now docker
 usermod -aG docker ec2-user || true
 
+# Bound container log growth (ADR-0019): the json-file driver is unbounded
+# by default and lands on the same data disk the alarms watch. 10m x3 per
+# container, applied before any container starts below.
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json <<'DOCKER_EOF'
+{
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" }
+}
+DOCKER_EOF
+systemctl restart docker
+
 curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
 unzip -q -o /tmp/awscliv2.zip -d /tmp
 /tmp/aws/install --update 2>/dev/null || /tmp/aws/install
@@ -144,10 +156,40 @@ UNIT_EOF
 systemctl daemon-reload
 systemctl enable opencode-colors.service
 
+# Weekly image prune (ADR-0019): stale backend/edge images are the main
+# disk hog. Images only, never volumes: workspace, opencode data, and
+# Caddy state live in named volumes on this disk and must survive.
+cat > /etc/systemd/system/docker-prune.service <<'PRUNE_EOF'
+[Unit]
+Description=Prune unused Docker images
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker image prune -af
+PRUNE_EOF
+cat > /etc/systemd/system/docker-prune.timer <<'PRUNE_TIMER_EOF'
+[Unit]
+Description=Weekly Docker image prune
+
+[Timer]
+OnCalendar=weekly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+PRUNE_TIMER_EOF
+systemctl enable --now docker-prune.timer
+
 systemctl enable --now rsyslog
 cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<CW_EOF
 {
   "agent": { "metrics_collection_interval": 60, "run_as_user": "root" },
+  "metrics": { "metrics_collected": {
+    "mem": { "measurement": ["mem_used_percent"], "metrics_collection_interval": 60 },
+    "disk": { "measurement": ["used_percent"], "metrics_collection_interval": 60, "resources": ["/", "/var/lib/docker"] }
+  } },
   "logs": { "logs_collected": { "files": { "collect_list": [
     { "file_path": "/opt/opencode/logs/access.log", "log_group_name": "${name_prefix}-caddy", "log_stream_name": "{instance_id}" },
     { "file_path": "/var/log/secure", "log_group_name": "${name_prefix}-secure", "log_stream_name": "{instance_id}" },

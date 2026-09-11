@@ -221,6 +221,48 @@ resource "aws_cloudwatch_metric_alarm" "site_down" {
   }
 }
 
+# Host health (ADR-0019): the data disk (/var/lib/docker, ADR-0008) fills
+# silently — images, sessions, Caddy logs. The CloudWatch agent ships
+# mem_used_percent + disk_used_percent (see compute/user_data.sh); these
+# alarms page the same SNS topic as the intrusion alarms. Thresholds are
+# vars so the operator can tune without editing the module.
+resource "aws_cloudwatch_metric_alarm" "disk_high" {
+  alarm_name          = "${var.name_prefix}-disk-high"
+  alarm_description   = "Data disk /var/lib/docker above ${var.disk_threshold_percent}%: prune timer or log rotation is losing"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "disk_used_percent"
+  namespace           = "CWAgent"
+  period              = 300
+  statistic           = "Maximum"
+  threshold           = var.disk_threshold_percent
+  treat_missing_data  = "ignore"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+
+  dimensions = {
+    InstanceId = var.instance_id
+    path       = "/var/lib/docker"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "mem_high" {
+  alarm_name          = "${var.name_prefix}-mem-high"
+  alarm_description   = "EC2 memory above ${var.mem_threshold_percent}% for 15 minutes: host may OOM the agent backend"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 3
+  metric_name         = "mem_used_percent"
+  namespace           = "CWAgent"
+  period              = 300
+  statistic           = "Average"
+  threshold           = var.mem_threshold_percent
+  treat_missing_data  = "ignore"
+  alarm_actions       = [aws_sns_topic.alerts.arn]
+
+  dimensions = {
+    InstanceId = var.instance_id
+  }
+}
+
 # Audit trail (single-region, management events): who-called-what for the
 # account in this region, delivered to a dedicated bucket. Log-file
 # validation on; single region keeps it at cents per month.

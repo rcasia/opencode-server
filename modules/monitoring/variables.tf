@@ -20,3 +20,15 @@ variable "instance_id" {
   type        = string
   default     = ""
 }
+
+variable "disk_threshold_percent" {
+  description = "disk_used_percent on /var/lib/docker that pages the operator."
+  type        = number
+  default     = 80
+}
+
+variable "mem_threshold_percent" {
+  description = "mem_used_percent sustained 15 minutes that pages the operator."
+  type        = number
+  default     = 90
+}
