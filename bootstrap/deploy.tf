@@ -305,20 +305,6 @@ data "aws_iam_policy_document" "deploy_data" {
     ]
     resources = ["*"]
   }
-
-  statement {
-    sid = "DlmServiceRole"
-    actions = [
-      "iam:CreateServiceLinkedRole",
-      "iam:DeleteServiceLinkedRole",
-    ]
-    resources = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/dlm.amazonaws.com/AWSServiceRoleForSnapshotLifecycleManagement"]
-    condition {
-      test     = "StringEquals"
-      variable = "iam:AWSServiceName"
-      values   = ["dlm.amazonaws.com"]
-    }
-  }
 }
 
 resource "aws_iam_policy" "deploy_data" {
@@ -438,6 +424,20 @@ data "aws_iam_policy_document" "deploy_identity" {
     sid       = "Identity"
     actions   = ["sts:GetCallerIdentity"]
     resources = ["*"]
+  }
+
+  # EC2 alarm actions (issue #47): creating an alarm with an automate
+  # action requires iam:CreateServiceLinkedRole — CloudWatch provisions
+  # AWSServiceRoleForCloudWatchEvents on first use.
+  statement {
+    sid       = "AlarmServiceRole"
+    actions   = ["iam:CreateServiceLinkedRole"]
+    resources = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/events.amazonaws.com/AWSServiceRoleForCloudWatchEvents"]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:AWSServiceName"
+      values   = ["events.amazonaws.com"]
+    }
   }
 
   # Flow-logs delivery role (modules/network): same management shape as

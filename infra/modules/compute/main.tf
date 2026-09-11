@@ -250,19 +250,15 @@ resource "aws_volume_attachment" "data" {
 
 # Data-disk backup (issue #46, ADR-0030): daily DLM snapshots of the
 # persistent volume (tag-targeted), keep 7. Zero daemons, no host IAM,
-# cents/month. The service-linked role is managed here so first apply
-# converges without console clicks.
-resource "aws_iam_service_linked_role" "dlm" {
-  count            = var.enable_data_snapshots ? 1 : 0
-  aws_service_name = "dlm.amazonaws.com"
-  description      = "${var.name_prefix} data-volume snapshots (issue #46)"
-}
-
+# cents/month. The execution role is DLM's service-linked role, which
+# AWS provisions automatically on first policy creation — managing it
+# in Terraform fails (no SLR template for the DLM prefix), so only the
+# policy itself is managed here.
 resource "aws_dlm_lifecycle_policy" "data" {
   count              = var.enable_data_snapshots ? 1 : 0
   description        = "${var.name_prefix}-data daily snapshots"
   state              = "ENABLED"
-  execution_role_arn = aws_iam_service_linked_role.dlm[0].arn
+  execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/dlm.amazonaws.com/AWSServiceRoleForSnapshotLifecycleManagement"
 
   policy_details {
     resource_types = ["VOLUME"]
