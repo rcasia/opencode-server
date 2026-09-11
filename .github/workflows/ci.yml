@@ -47,6 +47,8 @@ jobs:
               - 'app/Caddyfile'
               - 'app/switch.sh'
               - 'app/opencode.json'
+              - 'app/nono-profile.json'
+              - 'app/nono-version.json'
               - 'app/host/**'
             pipeline:
               - '.github/**'
@@ -264,8 +266,20 @@ jobs:
           aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/switch.sh "s3://$BUCKET/app/switch.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/opencode.json "s3://$BUCKET/app/opencode.json" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/nono-profile.json "s3://$BUCKET/app/nono-profile.json" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/nono-version.json "s3://$BUCKET/app/nono-version.json" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/host/app.sh "s3://$BUCKET/app/host/app.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/host/monitoring.sh "s3://$BUCKET/app/host/monitoring.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
+          # Pinned nono RPMs (ADR-0025): CI fetches + verifies, boot
+          # installs from disk — never curl-at-boot (ADR-0003).
+          NONO_VERSION="$(jq -r .version app/nono-version.json)"
+          for ARCH in x86_64 aarch64; do
+            RPM="$(jq -r ".artifacts.rpm_${ARCH}.file" app/nono-version.json)"
+            SHA="$(jq -r ".artifacts.rpm_${ARCH}.sha256" app/nono-version.json)"
+            curl -fsSL "https://github.com/nolabs-ai/nono/releases/download/v${NONO_VERSION}/${RPM}" -o "/tmp/${RPM}"
+            echo "${SHA}  /tmp/${RPM}" | sha256sum -c -
+            aws s3 cp "/tmp/${RPM}" "s3://$BUCKET/app/${RPM}" --sse AES256 --region "${{ env.AWS_REGION }}"
+          done
       - name: Terraform validate
         run: terraform validate
       - name: Terraform plan
@@ -298,8 +312,18 @@ jobs:
           aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/switch.sh "s3://$BUCKET/app/switch.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/opencode.json "s3://$BUCKET/app/opencode.json" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/nono-profile.json "s3://$BUCKET/app/nono-profile.json" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/nono-version.json "s3://$BUCKET/app/nono-version.json" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/host/app.sh "s3://$BUCKET/app/host/app.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/host/monitoring.sh "s3://$BUCKET/app/host/monitoring.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
+          NONO_VERSION="$(jq -r .version app/nono-version.json)"
+          for ARCH in x86_64 aarch64; do
+            RPM="$(jq -r ".artifacts.rpm_${ARCH}.file" app/nono-version.json)"
+            SHA="$(jq -r ".artifacts.rpm_${ARCH}.sha256" app/nono-version.json)"
+            curl -fsSL "https://github.com/nolabs-ai/nono/releases/download/v${NONO_VERSION}/${RPM}" -o "/tmp/${RPM}"
+            echo "${SHA}  /tmp/${RPM}" | sha256sum -c -
+            aws s3 cp "/tmp/${RPM}" "s3://$BUCKET/app/${RPM}" --sse AES256 --region "${{ env.AWS_REGION }}"
+          done
       - name: Smoke test (site answers through TLS + SSO gate)
         if: steps.plan.outputs.exitcode == '2'
         run: |
@@ -394,13 +418,15 @@ jobs:
           aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/switch.sh "s3://$BUCKET/app/switch.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/opencode.json "s3://$BUCKET/app/opencode.json" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/nono-profile.json "s3://$BUCKET/app/nono-profile.json" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/nono-version.json "s3://$BUCKET/app/nono-version.json" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/host/app.sh "s3://$BUCKET/app/host/app.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/host/monitoring.sh "s3://$BUCKET/app/host/monitoring.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
       - name: Blue-green switch via SSM
         run: |
           IID="$(terraform output -raw instance_id)"
           BUCKET="$(terraform output -raw app_bundle_bucket)"
-          CMD_ID="$(aws ssm send-command --instance-ids "$IID" --document-name "AWS-RunShellScript" --parameters "commands=[\"cd /opt/opencode && aws s3 cp s3://$BUCKET/app/compose.yaml compose.yaml --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/Caddyfile Caddyfile --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/switch.sh switch.sh --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/opencode.json opencode.json --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/host/app.sh host/app.sh --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/host/monitoring.sh host/monitoring.sh --region ${{ env.AWS_REGION }} && chmod +x switch.sh host/app.sh host/monitoring.sh && host/app.sh secrets && host/monitoring.sh && ./switch.sh deploy && (host/app.sh git-setup || echo 'WARNING: git setup failed (non-blocking)')\"]" --query "Command.CommandId" --output text)"
+          CMD_ID="$(aws ssm send-command --instance-ids "$IID" --document-name "AWS-RunShellScript" --parameters "commands=[\"cd /opt/opencode && aws s3 cp s3://$BUCKET/app/compose.yaml compose.yaml --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/Caddyfile Caddyfile --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/switch.sh switch.sh --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/opencode.json opencode.json --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/nono-profile.json nono-profile.json --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/nono-version.json nono-version.json --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/host/app.sh host/app.sh --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/host/monitoring.sh host/monitoring.sh --region ${{ env.AWS_REGION }} && chmod +x switch.sh host/app.sh host/monitoring.sh && host/app.sh secrets && host/monitoring.sh && ./switch.sh deploy && (host/app.sh git-setup || echo 'WARNING: git setup failed (non-blocking)')\"]" --query "Command.CommandId" --output text)"
           for _ in $(seq 1 60); do
             STATUS="$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query Status --output text 2>/dev/null || echo Pending)"
             echo "ssm status: $STATUS"

@@ -35,6 +35,44 @@ grep -q '"apiKey": "{env:ANTHROPIC_API_KEY}"' opencode.json
 grep -q '"apiKey": "{env:OPENAI_API_KEY}"' opencode.json
 echo "PASS: opencode.json is valid JSON and uses env substitution for provider keys"
 
+echo "==> Validating nono pilot pins (ADR-0023)"
+jq empty nono-profile.json
+jq empty nono-version.json
+MANIFEST_VERSION="$(jq -r .version nono-version.json)"
+USER_DATA_PIN="$(grep -m1 '^NONO_VERSION=' ../modules/compute/user_data.sh | cut -d'"' -f2)"
+[ -n "$USER_DATA_PIN" ] && [ "$USER_DATA_PIN" = "$MANIFEST_VERSION" ] \
+  || { echo "FAIL: user_data NONO_VERSION ($USER_DATA_PIN) != manifest ($MANIFEST_VERSION)"; exit 1; }
+for _arch in x86_64 aarch64; do
+  MANIFEST_SHA="$(jq -r ".artifacts.rpm_${_arch}.sha256" nono-version.json)"
+  USER_DATA_SHA="$(grep "${_arch}) NONO_RPM=" ../modules/compute/user_data.sh | sed 's/.*NONO_SHA256="\([0-9a-f]*\)".*/\1/')"
+  [ -n "$USER_DATA_SHA" ] && [ "$USER_DATA_SHA" = "$MANIFEST_SHA" ] \
+    || { echo "FAIL: user_data nono SHA for $_arch ($USER_DATA_SHA) != manifest ($MANIFEST_SHA)"; exit 1; }
+done
+if command -v nono >/dev/null 2>&1; then
+  nono profile validate ./nono-profile.json
+  echo "PASS: nono-profile.json validates against the installed nono schema"
+else
+  echo "PASS: nono-profile.json is valid JSON (no local nono binary for schema validation)"
+fi
+echo "PASS: nono pins consistent (version $MANIFEST_VERSION, boot SHAs match manifest)"
+
+echo "==> Fetching pinned nono Linux binary for the container mount"
+HOST_ARCH="$(uname -m)"
+case "$HOST_ARCH" in
+  x86_64|amd64) TAR_ARCH="x86_64" ;;
+  aarch64|arm64) TAR_ARCH="aarch64" ;;
+  *) echo "FAIL: unsupported arch $HOST_ARCH for nono test binary"; exit 1 ;;
+esac
+TAR_FILE="$(jq -r ".artifacts.tar_${TAR_ARCH}.file" nono-version.json)"
+TAR_SHA="$(jq -r ".artifacts.tar_${TAR_ARCH}.sha256" nono-version.json)"
+mkdir -p .nono-bin
+curl -fsSL "https://github.com/nolabs-ai/nono/releases/download/v${MANIFEST_VERSION}/${TAR_FILE}" -o .nono-bin/nono.tar.gz
+echo "${TAR_SHA}  .nono-bin/nono.tar.gz" | sha256sum -c -
+tar -xzf .nono-bin/nono.tar.gz -C .nono-bin
+test -x .nono-bin/nono || { echo "FAIL: nono binary missing after extract"; exit 1; }
+export NONO_BIN="$APP_DIR/.nono-bin/nono"
+echo "PASS: pinned nono binary ready at $NONO_BIN"
+
 echo "==> Starting prod stack locally, live color blue (dummy env)"
 docker compose up -d --wait --wait-timeout 180 caddy oauth2-proxy opencode-blue >/dev/null
 

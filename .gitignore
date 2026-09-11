@@ -30,3 +30,5 @@ environments/local.auto.tfvars.json
 # app runtime env (dummy locally, SSM-backed password on prod) + caddy logs
 app/app.env
 app/logs/
+# test-boot fetches the pinned nono Linux binary here for the container mount
+app/.nono-bin/
