@@ -76,13 +76,26 @@ git_setup() {
     $COMPOSE ps --status running --services 2>/dev/null | grep -q "^$TARGET$" && break
     sleep 5
   done
+  # The backend installs git via apk inside its entrypoint (issue
+  # #35): seconds after `up -d` the binary may not exist yet. Wait
+  # for it instead of failing into a poisoned boot (Problem 2:
+  # exec git raced the apk install and user_data exited non-zero).
+  for _ in $(seq 1 60); do
+    $COMPOSE exec -T "$TARGET" sh -c 'command -v git' >/dev/null 2>&1 && break
+    sleep 2
+  done
+  $COMPOSE exec -T "$TARGET" sh -c 'command -v git' >/dev/null 2>&1 \
+    || { echo "WARNING: git never appeared in $TARGET; skipping git setup" >&2; return 1; }
   GH_PAT=$(aws ssm get-parameter --name "$GITHUB_TOKEN_PARAMETER" --with-decryption --query Parameter.Value --output text --region "$AWS_REGION")
   [ -n "${GIT_USER_NAME:-}" ] && $COMPOSE exec -T "$TARGET" git config --global user.name "$GIT_USER_NAME" || true
   [ -n "${GIT_USER_EMAIL:-}" ] && $COMPOSE exec -T "$TARGET" git config --global user.email "$GIT_USER_EMAIL" || true
   $COMPOSE exec -T "$TARGET" git config --global credential.helper store
   printf 'https://x-access-token:%s@github.com\n' "$GH_PAT" | $COMPOSE exec -T -i "$TARGET" sh -c 'cat > /root/.git-credentials && chmod 600 /root/.git-credentials' # pragma: allowlist secret
   unset GH_PAT
-  $COMPOSE exec -T "$TARGET" git config --global credential.helper | grep -q '^store$' || { echo "WARNING: git credential helper not applied" >&2; exit 1; }
+  # NOTE: `return`, never `exit` — callers invoke this as
+  # `git_setup || echo WARNING`, and `exit` would bypass the `||`,
+  # kill app.sh outright, and fail user_data/cloud-init with it.
+  $COMPOSE exec -T "$TARGET" git config --global credential.helper | grep -q '^store$' || { echo "WARNING: git credential helper not applied" >&2; return 1; }
 }
 
 install_colors_service() {

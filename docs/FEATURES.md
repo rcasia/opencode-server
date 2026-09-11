@@ -59,8 +59,8 @@ rule 10).
 - **Agent git identity.** The agent commits/pushes as the operator:
   identity in vars, PAT in SSM, applied by an idempotent boot helper.
   The pinned backend image ships without git, so each backend installs
-  it at container start (before the sandbox applies); without it the
-  boot helper warns and agent git stays unavailable.
+  it at container start (before the sandbox applies); the boot helper
+  waits for it and a git failure only warns — it never fails boot.
 - **Sandboxed backend.** Both backend colors run `opencode web` under
   `nono` (Landlock) with the checked-in `app/nono-profile.json`:
   workspace + port 4096 + provider/GitHub egress allowed; IMDS,
