@@ -282,49 +282,21 @@ jobs:
             esac
             sleep 20
           done
-          echo "site never returned the SSO gate (last: $RESP)"; exit 1
+          echo "site never returned... (last: $RESP)"; exit 1
       - name: Boot diagnostics (only when apply ran and something above failed)
         if: failure() && steps.plan.outputs.exitcode == '2'
-        continue-on-error: true
         run: |
-          set +e
-          IID="$(terraform output -raw instance_id 2>/dev/null || true)"
-          if [ -z "$IID" ]; then
-            echo "::warning::No EC2 instance ID available; cannot fetch cloud-init logs."
-            exit 0
-          fi
-          echo "===== cloud-init-output.log (last 300 lines) ====="
-          CMD_ID="$(aws ssm send-command \
-            --instance-ids "$IID" \
-            --document-name "AWS-RunShellScript" \
-            --parameters '{"commands":["tail -n 300 /var/log/cloud-init-output.log 2>&1 || true","echo ===== /var/log/cloud-init.log (last 300 lines) =====","tail -n 300 /var/log/cloud-init.log 2>&1 || true","echo ===== docker status =====","systemctl is-active docker || true","docker compose -f /opt/opencode/compose.yaml ps || true"]}' \
-            --query "Command.CommandId" \
-            --output text 2>/dev/null || true)"
-          if [ -z "$CMD_ID" ] || [ "$CMD_ID" = "None" ]; then
-            echo "::warning::SSM send-command failed; could not fetch cloud-init logs."
-            exit 0
-          fi
-          STATUS="Pending"
-          for _ in $(seq 1 30); do
+          IID="$(terraform output -raw instance_id)"
+          CMD_ID="$(aws ssm send-command --instance-ids "$IID" --document-name "AWS-RunShellScript" --parameters "commands=[\"tail -n 80 /var/log/cloud-init-output.log\", \"systemctl is-active docker || true\", \"docker compose -f /opt/opencode/compose.yaml ps || true\"]" --query "Command.CommandId" --output text 2>/dev/null || true)"
+          if [ -z "$CMD_ID" ]; then echo "SSM send-command failed"; exit 1; fi
+          for _ in $(seq 1 24); do
             STATUS="$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query Status --output text 2>/dev/null || echo Pending)"
-            echo "ssm diagnostics status: $STATUS"
-            case "$STATUS" in
-              Success|Failed|Cancelled|TimedOut) break;;
-            esac
-            sleep 2
+            [ "$STATUS" = "Success" ] && break
+            case "$STATUS" in Failed|Cancelled|TimedOut) break;; esac
+            sleep 5
           done
-          echo "===== SSM diagnostics stdout ====="
-          aws ssm get-command-invocation \
-            --command-id "$CMD_ID" \
-            --instance-id "$IID" \
-            --query StandardOutputContent \
-            --output text 2>/dev/null || true
-          echo "===== SSM diagnostics stderr ====="
-          aws ssm get-command-invocation \
-            --command-id "$CMD_ID" \
-            --instance-id "$IID" \
-            --query StandardErrorContent \
-            --output text 2>/dev/null || true
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query StandardOutputContent --output text
+          exit 1
 
   deploy-app:
     needs: [pre-commit, deploy-prod, changes]
