@@ -122,7 +122,7 @@ GH_PAT=$(aws ssm get-parameter --name "${github_token_parameter}" --with-decrypt
 [ -n "${git_user_name}" ] && $COMPOSE exec -T $TARGET git config --global user.name "${git_user_name}" || true
 [ -n "${git_user_email}" ] && $COMPOSE exec -T $TARGET git config --global user.email "${git_user_email}" || true
 $COMPOSE exec -T $TARGET git config --global credential.helper store
-printf 'https://x-access-token:%s@github.com\n' "$GH_PAT" | $COMPOSE exec -T -i $TARGET sh -c 'cat > /root/.git-credentials && chmod 600 /root/.git-credentials'
+printf 'https://x-access-token:%s@github.com\n' "$GH_PAT" | $COMPOSE exec -T -i $TARGET sh -c 'cat > /root/.git-credentials && chmod 600 /root/.git-credentials' # pragma: allowlist secret
 $COMPOSE exec -T $TARGET git config --global credential.helper | grep -q '^store$' || { echo "WARNING: git credential helper not applied" >&2; exit 1; }
 GIT_EOF
 chmod +x /usr/local/bin/opencode-git-setup.sh
