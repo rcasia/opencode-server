@@ -347,11 +347,33 @@ jobs:
           # order ran smoke first, so a poisoned boot still reported
           # green whenever the edge alone answered `/`.
           CMD_ID="$(aws ssm send-command --instance-ids "$IID" --document-name "AWS-RunShellScript" --timeout-seconds 600 --parameters 'commands=["cloud-init status --wait --long"]' --query "Command.CommandId" --output text)"
+          echo "boot gate: waiting on cloud-init (poll every 5s, progress probe every ~60s)"
+          PROBE_N=0
           for _ in $(seq 1 130); do
             STATUS="$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query Status --output text 2>/dev/null || echo Pending)"
-            echo "ssm status: $STATUS"
+            echo "$(date -u +%H:%M:%SZ) ssm status: $STATUS"
             [ "$STATUS" = "Success" ] && break
             case "$STATUS" in Failed|Cancelled|TimedOut) break;; esac
+            # The --wait output only arrives at the end, so surface
+            # boot progress separately: a lightweight concurrent probe
+            # printing cloud-init status plus the log tail. Probe
+            # failures never fail the gate — the main wait decides.
+            PROBE_N=$((PROBE_N + 1))
+            if [ "$((PROBE_N % 12))" = "0" ]; then
+              echo "--- boot progress probe #$((PROBE_N / 12)) ---"
+              PROBE_ID="$(aws ssm send-command --instance-ids "$IID" --document-name "AWS-RunShellScript" --timeout-seconds 60 --parameters 'commands=["cloud-init status --long || true", "echo --- cloud-init-output.log tail ---", "tail -n 8 /var/log/cloud-init-output.log 2>/dev/null || echo (log not ready)"]' --query "Command.CommandId" --output text 2>/dev/null || true)"
+              if [ -n "${PROBE_ID:-}" ]; then
+                for _p in $(seq 1 10); do
+                  PSTATUS="$(aws ssm get-command-invocation --command-id "$PROBE_ID" --instance-id "$IID" --query Status --output text 2>/dev/null || echo Pending)"
+                  [ "$PSTATUS" = "Success" ] && break
+                  case "$PSTATUS" in Failed|Cancelled|TimedOut) break;; esac
+                  sleep 5
+                done
+                aws ssm get-command-invocation --command-id "$PROBE_ID" --instance-id "$IID" --query StandardOutputContent --output text 2>/dev/null || echo "(probe output unavailable)"
+              else
+                echo "(progress probe send failed; main wait continues)"
+              fi
+            fi
             sleep 5
           done
           echo "--- cloud-init status --wait --long ---"
