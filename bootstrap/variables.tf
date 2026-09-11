@@ -15,3 +15,9 @@ variable "environment" {
   type        = string
   default     = "prod"
 }
+
+variable "github_repo" {
+  description = "GitHub repo allowed to assume the deploy role (owner/name)"
+  type        = string
+  default     = "rcasia/opencode-server"
+}
