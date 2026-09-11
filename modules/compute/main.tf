@@ -40,23 +40,26 @@ resource "aws_iam_role_policy" "opencode_password" {
   policy = data.aws_iam_policy_document.opencode_password.json
 }
 
-# SSO secrets (ADR-0014): the instance alone can read the GitHub OAuth
-# client secret and the oauth2-proxy cookie secret. Nothing else (deploy
-# role, CI, state) ever sees these values — same shape as ADR-0004.
-data "aws_iam_policy_document" "oauth_secrets" {
-  statement {
-    actions = ["ssm:GetParameter"]
-    resources = [
-      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${var.github_oauth_secret_parameter}",
-      "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${var.oauth_cookie_secret_parameter}",
-    ]
-  }
-}
-
 resource "aws_iam_role_policy" "oauth_secrets" {
   name   = "${var.name_prefix}-oauth-secrets"
   role   = aws_iam_role.server.name
   policy = data.aws_iam_policy_document.oauth_secrets.json
+}
+
+# The boot git helper (and deploy-app re-apply) fetches the GitHub PAT
+# from this param at runtime — without it, git auth silently stays unset.
+data "aws_iam_policy_document" "github_token" {
+  statement {
+    actions   = ["ssm:GetParameter"]
+    resources = ["arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${var.github_token_parameter}"]
+  }
+}
+
+resource "aws_iam_role_policy" "github_token" {
+  name   = "${var.name_prefix}-github-token"
+  role   = aws_iam_role.server.name
+  policy = data.aws_iam_policy_document.github_token.json
+}
 }
 
 data "aws_iam_policy_document" "app_bundle" {
