@@ -14,5 +14,5 @@ git_user_email   = "31012661+rcasia@users.noreply.github.com"
 # SSO human gate (ADR-0014): GitHub OAuth App client ID (public) + the one
 # allowed username. Fill client_id from the OAuth App before pushing —
 # empty means oauth2-proxy fails closed (loud, not silent).
-github_oauth_client_id = ""
+github_oauth_client_id = "Ov23li57p6MCRSAeOaFy"
 github_oauth_user      = "rcasia"
