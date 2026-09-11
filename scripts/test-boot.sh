@@ -114,11 +114,13 @@ chmod +x nono-container
 echo "PASS: pinned musl nono binary ready at $APP_DIR/nono-container"
 
 echo "==> Starting prod stack locally, live color blue (dummy env)"
-docker compose up -d --wait --wait-timeout 180 caddy oauth2-proxy opencode-blue >/dev/null
-# caddy depends_on both colors, so green starts too; stop it to reach
-# the asserted pre-switch state (blue live, green stopped), exactly
-# like the boot reconcile does on the host.
-docker compose stop opencode-green >/dev/null
+# --no-deps: caddy depends_on both colors, so a plain up creates blue
+# and green in parallel. Both mount the same workspace volume and the
+# daemon loses a mkdir race inside it (failed to mkdir
+# .../app_opencode-workspace/_data/.cache: file exists), failing the
+# whole up. Green is created later, serially, by the switch rehearsal —
+# exactly like the host reconcile does.
+docker compose up -d --no-deps --wait --wait-timeout 180 caddy oauth2-proxy opencode-blue >/dev/null
 
 echo "==> Waiting for https://localhost"
 RESP=""

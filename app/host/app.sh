@@ -119,7 +119,11 @@ UNIT_EOF
 boot() {
   refresh_secrets
   cd "$OPT_DIR"
-  docker compose up -d caddy oauth2-proxy opencode-blue
+  # --no-deps: caddy depends_on both colors, so a plain up creates
+  # blue and green in parallel against the same workspace volume and
+  # the daemon can lose a mkdir race inside it, failing the whole up.
+  # Green comes up later, serially, via the reconcile unit.
+  docker compose up -d --no-deps caddy oauth2-proxy opencode-blue
   echo blue > "$OPT_DIR/.live-color"
   docker compose ps
   install_colors_service
