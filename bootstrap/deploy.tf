@@ -509,6 +509,7 @@ data "aws_iam_policy_document" "deploy_observe" {
       "budgets:ModifyBudget",
       "budgets:TagResource",
       "budgets:UntagResource",
+      "budgets:ListTagsForResource",
     ]
     resources = ["arn:aws:budgets::*:budget/${var.project}-*"]
   }
