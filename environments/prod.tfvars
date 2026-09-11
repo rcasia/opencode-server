@@ -20,7 +20,5 @@ github_oauth_user      = "rcasia"
 # Provider credentials: names only. Values live in SSM SecureStrings and are
 # fetched by the instance at boot with xtrace disabled. Empty = disabled.
 provider_api_key_parameters = {
-  ANTHROPIC_API_KEY = "/opencode/anthropic-api-key"
-  OPENAI_API_KEY    = ""
-  OPENCODE_API_KEY  = "/opencode/opencode-api-key"
+  OPENCODE_API_KEY = "/opencode/opencode-api-key"
 }
