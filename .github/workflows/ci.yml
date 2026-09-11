@@ -1,11 +1,16 @@
 # ci — commit checks plus automatic prod deploy, one workflow graph.
 # Runs on every push to main and every PR.
 # Jobs: changes (paths-filter) -> pre-commit always, terraform + local only
-#   when infra/pipeline files changed, then deploy-prod (main pushes only,
-#   needs green-or-skipped checks): OIDC -> S3 init -> plan -> apply
-#   (only when the plan has changes) -> smoke test. PR runs skip deploy-prod
-#   (no secrets on PRs, never deploy). Docs-only pushes skip the slow jobs.
-#   All gates fail open: if the filter job breaks, everything runs.
+#   when infra/pipeline files changed, then bootstrap (main pushes only,
+#   needs green-or-skipped checks): OIDC -> S3 init -> adopt imports ->
+#   plan -> apply (only when the plan has changes). Then deploy-prod (same
+#   gate, needs bootstrap): OIDC -> S3 init -> plan -> apply (only when the
+#   plan has changes) -> smoke test. Then deploy-app for app-only changes.
+#   PR runs skip bootstrap/deploy-prod/deploy-app (no secrets on PRs, never
+#   deploy). Docs-only pushes skip the slow jobs. The bootstrap test
+#   (test-bootstrap.sh) is intentionally NOT in the pipeline — too slow;
+#   run it locally via make when changing user_data. All gates fail open:
+#   if the filter job breaks, everything runs.
 # Requirements: AWS_ROLE_ARN secret + TF_STATE_BUCKET variable, else the
 #   deploy job fails red. Optional: ALERT_EMAIL variable (intrusion alarm
 #   recipient; absent = alarms exist but email no one). Rollback: revert on
@@ -98,7 +103,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
     defaults:
       run:
         shell: bash
@@ -144,19 +148,84 @@ jobs:
           terraform plan -target=module.compute -var-file=environments/local.tfvars -input=false -detailed-exitcode || exitcode=$?
           if [ "${exitcode:-0}" != "0" ]; then echo "non-idempotent plan on existing state"; exit 1; fi
 
-      - name: Log in to GHCR (bootstrap image cache)
-        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-
-      - name: Bootstrap test (rendered user_data executes in AL2023;
-          registry-cached base, script re-runs in minutes)
-        env:
-          BOOT_TEST_CACHE: 1
-          BOOT_TEST_PUSH: 1
-        run: ./scripts/test-bootstrap.sh
-
-  deploy-prod:
+  bootstrap:
+    # Pipeline-managed deploy trust (ADR-0013): bootstrap/ owns the OIDC
+    # provider + deploy role + policy and applies itself AS the role —
+    # never from a laptop. First run adopts the manual role/provider/bucket
+    # via imports, then deletes the one-time bridge policy, leaving only
+    # the TF-managed policy on the role.
     needs: [pre-commit, terraform, local, changes]
     if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.changes.result != 'success' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.pipeline == 'true') && needs.pre-commit.result == 'success' && (needs.terraform.result == 'success' || needs.terraform.result == 'skipped') && (needs.local.result == 'success' || needs.local.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: prod
+    concurrency:
+      group: prod-deploy
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: bootstrap
+    env:
+      AWS_REGION: eu-west-1
+      TF_STATE_KEY: opencode-server/bootstrap/terraform.tfstate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "1.13.3"
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform init (S3 backend)
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ env.TF_STATE_KEY }}" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+
+      - name: Adopt manual resources (one-time imports, idempotent)
+        run: |
+          terraform import aws_s3_bucket.state "${{ vars.TF_STATE_BUCKET }}" || true
+          terraform import aws_s3_bucket_versioning.state "${{ vars.TF_STATE_BUCKET }}" || true
+          terraform import aws_s3_bucket_server_side_encryption_configuration.state "${{ vars.TF_STATE_BUCKET }}" || true
+          terraform import aws_s3_bucket_public_access_block.state "${{ vars.TF_STATE_BUCKET }}" || true
+          terraform import aws_iam_role.deploy opencode-server-deploy || true
+          ACCT="$(aws sts get-caller-identity --query Account --output text)"
+          terraform import aws_iam_openid_connect_provider.github "arn:aws:iam::$ACCT:oidc-provider/token.actions.githubusercontent.com" || true
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        id: plan
+        run: |
+          terraform plan -input=false -out=tfplan -detailed-exitcode || exitcode=$?
+          exitcode=${exitcode:-0}
+          echo "exitcode=$exitcode" >> "$GITHUB_OUTPUT"
+          if [ "$exitcode" -eq 1 ]; then exit 1; fi
+
+      - name: Terraform apply
+        if: steps.plan.outputs.exitcode == '2'
+        run: terraform apply -input=false tfplan
+
+      - name: Remove bridge policy (TF-managed policy now covers everything)
+        if: steps.plan.outputs.exitcode == '2'
+        run: aws iam delete-role-policy --role-name opencode-server-deploy --policy-name bridge || true
+
+  deploy-prod:
+    needs: [pre-commit, terraform, local, bootstrap, changes]
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.changes.result != 'success' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.pipeline == 'true') && needs.pre-commit.result == 'success' && (needs.terraform.result == 'success' || needs.terraform.result == 'skipped') && (needs.local.result == 'success' || needs.local.result == 'skipped') && (needs.bootstrap.result == 'success' || needs.bootstrap.result == 'skipped')
     runs-on: ubuntu-latest
     environment: prod
     concurrency:
