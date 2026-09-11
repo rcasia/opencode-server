@@ -28,7 +28,8 @@ subnet (no NAT), Elastic IP, SSM access, optional SSH key.
   (`Dockerfile.boot` + `stubs/`, see ADR-0007)
 - `docs/adr/` — architecture decision records (index + template); add one per
   significant infra/security choice, never rewrite an accepted record
-- `bootstrap/` — one-time stack for the S3 state bucket (local state)
+- `bootstrap/` — one-time stack for the S3 state bucket + GitHub OIDC
+  deploy role/policy (local state; see ADR-0012)
 - `backend.hcl.example` — copy to `backend.hcl` (gitignored) after bootstrap
 - `terraform.tfvars.example` — copy to `terraform.tfvars` (gitignored)
 - `environments/prod.tfvars` — committed prod defaults; deploys via pipeline only

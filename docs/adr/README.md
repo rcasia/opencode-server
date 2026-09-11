@@ -18,6 +18,7 @@ trade-offs, and never rewrite an accepted record — supersede it with a new one
 | [0009](0009-uptime-monitoring.md)   | External uptime monitoring | Accepted | 2026-09-10 |
 | [0010](0010-git-auth.md)            | Git identity and auth on the server | Accepted | 2026-09-10 |
 | [0011](0011-rolling-deploys.md)     | Zero-downtime app deploys via S3 bundle + SSM | Accepted | 2026-09-10 |
+| [0012](0012-deploy-role.md)           | Deploy role and policy managed by bootstrap | Accepted | 2026-09-11 |
 
 ## Creating a New ADR
 

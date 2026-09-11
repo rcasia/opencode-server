@@ -65,30 +65,33 @@ skip `terraform`, `local`, and `deploy-prod` entirely.
   shippable. Rollback = revert the commit and push — the next green run
   re-applies the previous state (state is versioned in S3).
 
-## Pipeline setup (one-time, AWS console)
+## Pipeline setup (one-time, from your laptop)
 
-Deploys use OIDC — no long-lived access keys.
+Deploys use OIDC — no long-lived access keys. `bootstrap/` owns the
+whole deploy trust: state bucket + GitHub OIDC provider + deploy role
+and its policy (see [`docs/adr/0012-deploy-role.md`](docs/adr/0012-deploy-role.md)).
+Apply it once with your own credentials:
 
-1. IAM → Identity providers → Add OIDC provider: URL
-   `https://token.actions.githubusercontent.com`, audience
-   `sts.amazonaws.com`.
-2. IAM → Roles → Create role → Web identity: pick that provider, audience
-   `sts.amazonaws.com`, condition `StringLike`
-   `token.actions.githubusercontent.com:sub` =
-   `repo:rcasia/opencode-server:*`. Name it `opencode-server-deploy`.
-3. Attach a policy covering: EC2/VPC/SG/EIP/key-pair/volume management,
-   IAM roles + instance profiles + key pairs + attaching the
-   `AmazonSSMManagedInstanceCore` policy, and S3 access to the state
-   bucket (`s3:ListBucket` on the bucket, object RW on
-   `opencode-server/*`).
-4. Deploy `bootstrap/` once (creates the state bucket) and note its name.
-5. GitHub → repo Settings → Secrets and variables → Actions:
-   - Secret `AWS_ROLE_ARN` = the role ARN from step 2.
-   - Variable `TF_STATE_BUCKET` = the state bucket name from step 4.
-6. Restrict `allowed_ssh_cidr` in `environments/prod.tfvars` to your
+```bash
+terraform -chdir=bootstrap init
+terraform -chdir=bootstrap apply
+```
+
+Then:
+
+1. GitHub → repo Settings → Secrets and variables → Actions:
+   - Secret `AWS_ROLE_ARN` = `terraform -chdir=bootstrap output -raw deploy_role_arn`
+   - Variable `TF_STATE_BUCKET` = `terraform -chdir=bootstrap output -raw state_bucket`
+2. Restrict `allowed_ssh_cidr` in `environments/prod.tfvars` to your
    IP with `/32` — never deploy prod open to `0.0.0.0/0`.
-7. Push to `main`; the `deploy-prod` job applies automatically
+3. Push to `main`; the `deploy-prod` job applies automatically
    (plan, apply, smoke test).
+
+Migrating from the old console-created role: bootstrap creates
+`opencode-server-deploy`, which collides with the manual one. Either
+delete the manual role + OIDC provider in the console and let bootstrap
+recreate them (cleaner — the role holds no state), or import both into
+bootstrap state first.
 
 ## GitHub Actions secrets and variables
 
@@ -103,7 +106,7 @@ gh variable list --repo rcasia/opencode-server
 
 | Name | Type | How to obtain |
 |---|---|---|
-| `AWS_ROLE_ARN` | Secret | One-time AWS setup above (pipeline steps 1–2): repo Settings → Secrets and variables → Actions → Secrets tab → New repository secret, paste the role ARN. |
+| `AWS_ROLE_ARN` | Secret | `terraform -chdir=bootstrap output -raw deploy_role_arn` (pipeline setup above): repo Settings → Secrets and variables → Actions → Secrets tab → New repository secret, paste the role ARN. |
 | `TF_STATE_BUCKET` | Variable | After bootstrap apply: `terraform -chdir=bootstrap output -raw state_bucket`. Same Settings page → Variables tab → New repository variable. |
 
 Also required before the first real apply (in code, not in Actions):
