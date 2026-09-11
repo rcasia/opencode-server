@@ -188,10 +188,11 @@ echo "==> Asserting sandbox profile (issue #31, ADR-0025)"
 SANDBOX_NONO="/usr/local/bin/nono"
 SANDBOX_PROFILE="/etc/nono/profile.json"
 sandbox() {
-  # -t, not -T: nested nono opens /dev/tty for a Landlock rule, and an
-  # exec session without a controlling terminal fails the same ENXIO
-  # the container-level tty: true fixed for the backend itself.
-  docker compose exec -t opencode-blue "$SANDBOX_NONO" run --silent --allow-cwd --profile "$SANDBOX_PROFILE" -- "$@"
+  # Plain docker exec -t: nested nono opens /dev/tty for a Landlock
+  # rule, and a session without a controlling terminal fails the same
+  # ENXIO the container-level tty: true fixed for the backend itself.
+  # (compose exec only disables TTY allocation; it cannot force it.)
+  docker exec -t "$(docker compose ps -q opencode-blue)" "$SANDBOX_NONO" run --silent --allow-cwd --profile "$SANDBOX_PROFILE" -- "$@"
 }
 # Enforcement probes only mean something where the sandbox can
 # initialize (Landlock on a native kernel). Where it cannot (e.g. ARM
