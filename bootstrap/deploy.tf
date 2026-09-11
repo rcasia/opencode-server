@@ -86,6 +86,9 @@ data "aws_iam_policy_document" "deploy_compute" {
       "ec2:StartInstances",
       "ec2:StopInstances",
       "ec2:RebootInstances",
+      # RecoverInstances (issue #47): CloudWatch rejects PutMetricAlarm
+      # for an ec2:recover action unless the creator may recover too.
+      "ec2:RecoverInstances",
       "ec2:CreateTags",
       "ec2:DeleteTags",
       "ec2:AllocateAddress",
