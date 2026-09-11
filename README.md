@@ -24,10 +24,9 @@ the Moto mock (see below).
 git push origin main   # checks then deploy-prod, all in the ci run
 ```
 
-`make plan-prod` works as a local pre-flight plan (needs credentials
-plus `backend.hcl`). Without `AWS_ROLE_ARN` / `TF_STATE_BUCKET`
-configured, `deploy-prod` fails red — that is the signal to finish the
-one-time setup below.
+Without `AWS_ROLE_ARN` / `TF_STATE_BUCKET` configured, `deploy-prod`
+fails red — that is the signal to finish the one-time setup below.
+Review the `tfplan-prod` artifact in the run, never plan from a laptop.
 
 ## CI/CD pipeline
 
@@ -107,19 +106,18 @@ gh variable list --repo rcasia/opencode-server
 
 | Name | Type | How to obtain |
 |---|---|---|
-| `AWS_ROLE_ARN` | Secret | `terraform -chdir=bootstrap output -raw deploy_role_arn` (pipeline setup above): repo Settings → Secrets and variables → Actions → Secrets tab → New repository secret, paste the role ARN. |
-| `TF_STATE_BUCKET` | Variable | After bootstrap apply: `terraform -chdir=bootstrap output -raw state_bucket`. Same Settings page → Variables tab → New repository variable. |
+| `AWS_ROLE_ARN` | Secret | The deploy role ARN from the one-time setup (pipeline adoption never changes it): repo Settings → Secrets and variables → Actions → Secrets tab → New repository secret. |
+| `TF_STATE_BUCKET` | Variable | The state bucket name (`opencode-prod-tfstate-<account-id>`). Same Settings page → Variables tab → New repository variable. |
 
 Also required before the first real apply (in code, not in Actions):
 `allowed_ssh_cidr` in `environments/prod.tfvars` must be your IP with
 `/32`, never `0.0.0.0/0`.
 
-Connect:
-```bash
-# keyless (SSM)
-aws ssm start-session --region eu-west-1 --target $(terraform output -raw instance_id)
-# or SSH if ssh_public_key set
-```
+Shell access: there is none from laptops — no SSH keys issued, no SSM
+shells. The server is operated through `opencode web` (the
+`opencode_url` output, user `opencode`) and through the pipeline. A
+suspect box is recovered by re-running the deploy jobs, not by logging
+in; the data volume survives replacement.
 
 ## opencode web access (phone-friendly HTTPS)
 
@@ -227,13 +225,8 @@ aws ssm put-parameter --region eu-west-1 --name /opencode/github-token \
 ```
 
 The boot helper (`/usr/local/bin/opencode-git-setup.sh`) fetches it and
-configures the container automatically on next deploy. To apply without a
-deploy, or after rotating the token, re-run it on the host:
-
-```bash
-aws ssm start-session --region eu-west-1 --target $(terraform output -raw instance_id)
-/usr/local/bin/opencode-git-setup.sh
-```
+configures the container at every boot. Rotating the token takes effect
+on the next deploy — token values never touch the repo or the pipeline.
 
 Rationale: [`docs/adr/0010-git-auth.md`](docs/adr/0010-git-auth.md).
 
@@ -257,12 +250,56 @@ only boots registered images. Outputs (IPs, ids) are mock values.
 
 ## State backend (S3)
 
-Root state lives in S3 with native locking (`use_lockfile`, no DynamoDB).
-Bootstrap state lives there too (`opencode-server/bootstrap/terraform.tfstate`),
-managed by the `bootstrap` CI job — both backends init with
-`-backend=false` in pre-commit, so no bucket or credentials are needed there.
+Root + bootstrap state live in S3 with native locking (`use_lockfile`,
+no DynamoDB), managed by the pipeline only. Laptops never init real
+backends and never read prod state — review the `tfplan-prod` artifact
+and job logs instead.
 
-Local `backend.hcl` flow (root stack, read-only pre-flight): copy
-`backend.hcl.example` to `backend.hcl` (gitignored), fill the bucket,
-`terraform init -backend-config=backend.hcl`. Plan only (`make
-plan-prod`) — applies ship via the pipeline, never from a laptop.
+## Rebuilding from zero
+
+If everything (including state) is destroyed, one AWS admin with
+console access performs the seeds below. Everything else ships via the
+pipeline — there is intentionally no laptop path back.
+
+Have ready up front:
+
+- AWS account id, and a user who can create IAM roles, S3 buckets, and
+  SSM parameters.
+- This repo, with `environments/prod.tfvars` filled (`allowed_ssh_cidr`
+  as your `/32`). Leave `domain_name` empty on the first pass — the EIP
+  is not known yet.
+- Two secret values (never in git): a strong opencode password and a
+  GitHub personal access token.
+- The OIDC subject in `bootstrap/variables.tf` (`deploy_subject`) — it
+  is committed; EMU orgs need the numeric form, no slug pattern.
+- The bridge policy JSON in
+  [`docs/adr/0013-pipeline-bootstrap.md`](docs/adr/0013-pipeline-bootstrap.md).
+
+Steps:
+
+1. Console: create S3 bucket `opencode-prod-tfstate-<account>` with
+   versioning enabled. (The pipeline adopts it; the backend needs the
+   bucket to exist before the first init.)
+2. Console: create the GitHub OIDC provider
+   (`token.actions.githubusercontent.com`, audience `sts.amazonaws.com`)
+   and the `opencode-server-deploy` role with strict trust: `StringEquals`
+   on `aud` = `sts.amazonaws.com`, `sub` = the committed
+   `deploy_subject`, `ref` = `refs/heads/main`.
+3. Console: attach the inline `bridge` policy from ADR-0013 to the role.
+4. Repo Settings → Secrets and variables → Actions: `AWS_ROLE_ARN`
+   secret (the role ARN), `TF_STATE_BUCKET` variable (the bucket name),
+   optional `ALERT_EMAIL` variable.
+5. Seed the SSM SecureStrings `/opencode/server-password` and
+   `/opencode/github-token` (console or any admin machine — values only,
+   Terraform never manages secret values).
+6. Push to `main`: `bootstrap` adopts the bucket/role/provider, converges
+   the managed policy, and deletes `bridge`; `deploy-prod` then builds
+   everything. Read the new EIP from the `terraform output` step log.
+7. Set `domain_name` to `<eip-with-dashes>.nip.io` in
+   `environments/prod.tfvars` and push again. The instance is replaced
+   (EIP and data volume survive); Caddy issues TLS and the smoke test
+   expects the 401 gate.
+8. Click the SNS subscription confirmation email.
+
+Permanently manual: the two SSM secret values and the SNS confirmation
+click. Everything else — including this runbook's own trust — is code.
