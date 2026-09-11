@@ -417,7 +417,14 @@ cmd_deploy() {
   log "verifying: live color running + edge reports ready"
   docker compose ps --status running --services | grep -qx "opencode-$IDLE" \
     || fail "opencode-$IDLE not running after switch"
-  edge_ready || fail "edge /ready is not 'ready' after switch"
+  # Poll, don't single-shot: Caddy needs a health interval or two to
+  # mark the stopped color down and fail `first` over to the idle one.
+  READY_OK=0
+  for _ in $(seq 1 30); do
+    if edge_ready; then READY_OK=1; break; fi
+    sleep 2
+  done
+  [ "$READY_OK" = "1" ] || fail "edge /ready is not 'ready' after switch"
 
   recover_color "$IDLE" "$DEPLOY_START" || true
 
