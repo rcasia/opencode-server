@@ -39,15 +39,15 @@ jobs:
           filters: |
             infra:
               - '**/*.tf'
-              # Shell is host-replacing ONLY under modules/ (user_data
+              # Shell is host-replacing ONLY under infra/modules/ (user_data
               # bootstrap). Stage scripts (app/host/**, app/switch.sh)
               # and test scripts (scripts/**) ship over SSM via
               # deploy-app — a bare '**/*.sh' here would mark every
               # stage change as infra and skip deploy-app forever,
               # uploading new stages to S3 that never execute.
-              - 'modules/**/*.sh'
+              - 'infra/modules/**/*.sh'
               - '**/*.tfvars'
-              - '.terraform.lock.hcl'
+              - 'infra/.terraform.lock.hcl'
               - 'bootstrap/.terraform.lock.hcl'
             app:
               - 'app/compose.yaml'
@@ -61,8 +61,8 @@ jobs:
               - '.github/**'
               - 'Makefile'
               - 'compose.yaml'
-              - 'local.backend.hcl'
-              - 'environments/local.tfvars'
+              - 'infra/environments/local.backend.hcl'
+              - 'infra/environments/local.tfvars'
               - '.pre-commit-config.yaml'
               - '.secrets.baseline'
               - 'scripts/**'
@@ -120,9 +120,9 @@ jobs:
       - name: Terraform fmt check
         run: terraform fmt -check -recursive
       - name: Terraform init (backend disabled for CI)
-        run: terraform init -backend=false -input=false
+        run: terraform -chdir=infra init -backend=false -input=false
       - name: Terraform validate
-        run: terraform validate
+        run: terraform -chdir=infra validate
 
   local:
     timeout-minutes: 15
@@ -153,16 +153,16 @@ jobs:
           AWS_SECRET_ACCESS_KEY: test
         run: aws --endpoint-url=http://localhost:5000 --region eu-west-1 s3 mb s3://opencode-local-tfstate
       - name: Terraform init (moto backend)
-        run: terraform init -reconfigure -backend-config=environments/local.backend.hcl -input=false
+        run: terraform -chdir=infra init -reconfigure -backend-config=environments/local.backend.hcl -input=false
       - name: Terraform validate
-        run: terraform validate
+        run: terraform -chdir=infra validate
       - name: Terraform plan (moto, no AWS credentials)
-        run: terraform plan -var-file=environments/local.tfvars -input=false
+        run: terraform -chdir=infra plan -var-file=environments/local.tfvars -input=false
       - name: Terraform apply (moto throwaway, compute only)
-        run: terraform apply -target=module.compute -var-file=environments/local.tfvars -input=false -auto-approve
+        run: terraform -chdir=infra apply -target=module.compute -var-file=environments/local.tfvars -input=false -auto-approve
       - name: Idempotence check (second plan on non-empty state must be empty)
         run: |
-          terraform plan -target=module.compute -var-file=environments/local.tfvars -input=false -detailed-exitcode || exitcode=$?
+          terraform -chdir=infra plan -target=module.compute -var-file=environments/local.tfvars -input=false -detailed-exitcode || exitcode=$?
           if [ "${exitcode:-0}" != "0" ]; then echo "non-idempotent plan on existing state"; exit 1; fi
 
   app-test:
@@ -291,7 +291,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
       - name: Terraform init (S3 backend)
         run: |
-          terraform init -input=false \
+          terraform -chdir=infra init -input=false \
             -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
             -backend-config="key=${{ env.TF_STATE_KEY }}" \
             -backend-config="region=${{ env.AWS_REGION }}" \
@@ -299,7 +299,7 @@ jobs:
             -backend-config="use_lockfile=true"
       - name: Upload app bundle (S3, versioned)
         run: |
-          BUCKET="$(terraform output -raw app_bundle_bucket 2>/dev/null || true)"
+          BUCKET="$(terraform -chdir=infra output -raw app_bundle_bucket 2>/dev/null || true)"
           if [ -z "$BUCKET" ] || ! aws s3api head-bucket --bucket "$BUCKET" --region "${{ env.AWS_REGION }}" 2>/dev/null; then echo "no bundle bucket yet, skipping"; exit 0; fi
           aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
@@ -319,7 +319,7 @@ jobs:
           echo "${MUSL_SHA}  /tmp/${MUSL_TAR}" | sha256sum -c -
           aws s3 cp "/tmp/${MUSL_TAR}" "s3://$BUCKET/app/${MUSL_TAR}" --sse AES256 --region "${{ env.AWS_REGION }}"
       - name: Terraform validate
-        run: terraform validate
+        run: terraform -chdir=infra validate
       # Fail-open alarm check (issue #13): an empty ALERT_EMAIL leaves the
       # alarms paging nobody. Warn loudly but never block the deploy.
       - name: Warn when ALERT_EMAIL is unset (alarms notify nobody)
@@ -334,7 +334,7 @@ jobs:
         env:
           TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
         run: |
-          terraform plan -var-file=environments/prod.tfvars -var "deployed_version=$GITHUB_SHA" -input=false -out=tfplan -detailed-exitcode || exitcode=$?
+          terraform -chdir=infra plan -var-file=environments/prod.tfvars -var "deployed_version=$GITHUB_SHA" -input=false -out=tfplan -detailed-exitcode || exitcode=$?
           exitcode=${exitcode:-0}
           echo "exitcode=$exitcode" >> "$GITHUB_OUTPUT"
           if [ "$exitcode" -eq 1 ]; then exit 1; fi
@@ -359,7 +359,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: tfplan-prod
-          path: tfplan
+          path: infra/tfplan
           retention-days: 30
       - name: No changes to apply
         if: steps.plan.outputs.exitcode == '0'
@@ -368,9 +368,9 @@ jobs:
         id: apply
         if: steps.plan.outputs.exitcode == '2'
         run: |
-          IID_BEFORE="$(terraform output -raw instance_id 2>/dev/null || true)"
+          IID_BEFORE="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
           echo "iid_before=$IID_BEFORE" >> "$GITHUB_OUTPUT"
-          terraform apply -input=false tfplan
+          terraform -chdir=infra apply -input=false tfplan
       # A tag-only plan (e.g. the DeployedRef bump, which changes on
       # every commit) applies in place on the same instance: no fresh
       # boot, so the boot gate would read a stale cloud-init signal
@@ -381,7 +381,7 @@ jobs:
         id: replaced
         if: steps.plan.outputs.exitcode == '2'
         run: |
-          IID_AFTER="$(terraform output -raw instance_id 2>/dev/null || true)"
+          IID_AFTER="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
           if [ -n "$IID_AFTER" ] && [ "$IID_AFTER" != "${{ steps.apply.outputs.iid_before }}" ]; then
             echo "replaced=true (instance $IID_AFTER)" >> "$GITHUB_OUTPUT"
             echo "replaced=true" >> "$GITHUB_OUTPUT"
@@ -392,7 +392,7 @@ jobs:
       - name: Upload app bundle again (covers bucket-creating applies)
         if: steps.plan.outputs.exitcode == '2'
         run: |
-          BUCKET="$(terraform output -raw app_bundle_bucket)"
+          BUCKET="$(terraform -chdir=infra output -raw app_bundle_bucket)"
           aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/switch.sh "s3://$BUCKET/app/switch.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
@@ -413,7 +413,7 @@ jobs:
       - name: Boot gate (cloud-init success signal, before smoke)
         if: steps.plan.outputs.exitcode == '2' && steps.replaced.outputs.replaced == 'true'
         run: |
-          IID="$(terraform output -raw instance_id)"
+          IID="$(terraform -chdir=infra output -raw instance_id)"
           aws ec2 wait instance-running --instance-ids "$IID" --region "${{ env.AWS_REGION }}"
           # Wait for the SSM agent to come online (instance-running
           # only means the hypervisor started; SSM/cloud-init lag it).
@@ -463,9 +463,9 @@ jobs:
       - name: Smoke test (site answers through TLS + SSO gate + /ready)
         if: steps.plan.outputs.exitcode == '2' && steps.replaced.outputs.replaced == 'true'
         run: |
-          terraform output
-          aws ec2 wait instance-running --instance-ids "$(terraform output -raw instance_id)" --region "${{ env.AWS_REGION }}"
-          URL="$(terraform output -raw opencode_url)"
+          terraform -chdir=infra output
+          aws ec2 wait instance-running --instance-ids "$(terraform -chdir=infra output -raw instance_id)" --region "${{ env.AWS_REGION }}"
+          URL="$(terraform -chdir=infra output -raw opencode_url)"
           case "$URL" in https://*) ;; *) echo "no public URL ($URL), skipping HTTP check"; exit 0;; esac
           GATE=""
           for _ in $(seq 1 30); do
@@ -490,7 +490,7 @@ jobs:
       - name: Boot warnings audit (fresh boot only, informational)
         if: steps.plan.outputs.exitcode == '2' && steps.replaced.outputs.replaced == 'true'
         run: |
-          IID="$(terraform output -raw instance_id 2>/dev/null || true)"
+          IID="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
           if [ -z "$IID" ]; then echo "boot audit skipped: no instance id"; exit 0; fi
           CMD_ID="$(aws ssm send-command --instance-ids "$IID" \
             --document-name "AWS-RunShellScript" \
@@ -510,7 +510,7 @@ jobs:
         if: failure() && steps.plan.outputs.exitcode == '2'
         run: |
           set +e
-          IID="$(terraform output -raw instance_id 2>/dev/null || true)"
+          IID="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
           if [ -z "$IID" ]; then echo "No EC2 instance_id available for boot diagnostics"; exit 0; fi
           CMD_ID="$(aws ssm send-command --instance-ids "$IID" --document-name "AWS-RunShellScript" --parameters 'commands=["echo ===== compose ps =====","docker compose -f /opt/opencode/compose.yaml ps || true","echo ===== backend logs =====","docker compose -f /opt/opencode/compose.yaml logs --no-color --tail 120 opencode-blue opencode-green 2>&1 || true","echo ===== caddy logs =====","docker compose -f /opt/opencode/compose.yaml logs --no-color --tail 60 caddy 2>&1 || true","echo ===== docker status =====","systemctl is-active docker || true","echo ===== cloud-init-output.log tail =====","tail -n 60 /var/log/cloud-init-output.log 2>&1 || true","echo ===== cloud-init.log tail =====","tail -n 60 /var/log/cloud-init.log 2>&1 || true"]' --query "Command.CommandId" --output text 2>/dev/null || true)"
           if [ -z "$CMD_ID" ]; then echo "SSM send-command failed"; exit 0; fi
@@ -553,7 +553,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
       - name: Terraform init (S3 backend, for outputs)
         run: |
-          terraform init -input=false \
+          terraform -chdir=infra init -input=false \
             -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
             -backend-config="key=${{ env.TF_STATE_KEY }}" \
             -backend-config="region=${{ env.AWS_REGION }}" \
@@ -561,7 +561,7 @@ jobs:
             -backend-config="use_lockfile=true"
       - name: Upload app bundle
         run: |
-          BUCKET="$(terraform output -raw app_bundle_bucket)"
+          BUCKET="$(terraform -chdir=infra output -raw app_bundle_bucket)"
           aws s3 cp app/compose.yaml "s3://$BUCKET/app/compose.yaml" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/Caddyfile "s3://$BUCKET/app/Caddyfile" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/switch.sh "s3://$BUCKET/app/switch.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
@@ -572,8 +572,8 @@ jobs:
           aws s3 cp app/host/monitoring.sh "s3://$BUCKET/app/host/monitoring.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
       - name: Blue-green switch via SSM
         run: |
-          IID="$(terraform output -raw instance_id)"
-          BUCKET="$(terraform output -raw app_bundle_bucket)"
+          IID="$(terraform -chdir=infra output -raw instance_id)"
+          BUCKET="$(terraform -chdir=infra output -raw app_bundle_bucket)"
           # --timeout-seconds 720: SSM kills the command on the host if it
           # runs longer than 12 min (image pull + switch should be <5 min).
           # CI polls 150x5s=750s to outlast the SSM timeout and see the final
@@ -593,7 +593,7 @@ jobs:
           [ "$STATUS" = "Success" ]
       - name: Smoke test
         run: |
-          URL="$(terraform output -raw opencode_url)"
+          URL="$(terraform -chdir=infra output -raw opencode_url)"
           case "$URL" in https://*) ;; *) echo "no public URL ($URL), skipping HTTP check"; exit 0;; esac
           READY="$(curl -s --max-time 10 "$URL/ready" || true)"
           [ "$READY" = "ready" ] || { echo "expected body 'ready' from /ready, got: $READY"; exit 1; }

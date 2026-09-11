@@ -8,9 +8,11 @@ Provisions: VPC + public subnet + IGW, security group (SSH on your /32, Caddy 80
 
 ## Layout
 
-- `main.tf` — composes `modules/network` + `modules/compute`
-- `modules/network` — VPC, subnet, IGW, routes, security group
-- `modules/compute` — IAM role (SSM), optional key pair, EC2, EIP
+- `infra/main.tf` — composes `modules/network` + `modules/compute`
+- `infra/modules/network` — VPC, subnet, IGW, routes, security group
+- `infra/modules/compute` — IAM role (SSM), optional key pair, EC2, EIP
+- `infra/environments/` — `prod.tfvars` defaults plus the Moto mock
+  target (`local.tfvars`, `local.backend.hcl`)
 - `bootstrap/` — one-time stack creating the S3 state bucket
 
 ## Usage (prod deploys automatically)
@@ -92,7 +94,7 @@ After that:
 1. GitHub → repo Settings → Secrets and variables → Actions:
    - Secret `AWS_ROLE_ARN` = the deploy role ARN (unchanged by adoption).
    - Variable `TF_STATE_BUCKET` = the state bucket name.
-2. Restrict `allowed_ssh_cidr` in `environments/prod.tfvars` to your
+2. Restrict `allowed_ssh_cidr` in `infra/environments/prod.tfvars` to your
    IP with `/32` — never deploy prod open to `0.0.0.0/0`.
 3. Push to `main`; `bootstrap` then `deploy-prod` apply automatically
    (plan, apply, smoke test).
@@ -118,7 +120,7 @@ gh variable list --repo rcasia/opencode-server
 | `GIT_USER_NAME` / `GIT_USER_EMAIL` | Secrets | Agent commit identity; override the empty placeholders via `TF_VAR_git_user_name` / `TF_VAR_git_user_email`. |
 
 Also required before the first real apply (in code, not in Actions):
-`allowed_ssh_cidr` in `environments/prod.tfvars` must be your IP with
+`allowed_ssh_cidr` in `infra/environments/prod.tfvars` must be your IP with
 `/32`, never `0.0.0.0/0`.
 
 Shell access: there is none from laptops — no SSH keys issued, no SSM
@@ -259,7 +261,7 @@ of the login-failure metric.
 ## Git on the server (commits + push)
 
 Identity comes from `git_user_name` / `git_user_email` (already set in
-`environments/prod.tfvars`). Auth needs a Personal Access Token:
+`infra/environments/prod.tfvars`). Auth needs a Personal Access Token:
 
 ```bash
 # 1. GitHub → Settings → Developer settings → Personal access tokens →
@@ -292,7 +294,7 @@ make local-down    # stop the mock
 
 Notes: `aws_endpoint_url` switches the provider, backend, and lookups to
 the mock. `make local-up` writes the mock AMI id to
-`environments/local.auto.tfvars.json` (generated, gitignored) because Moto
+`infra/environments/local.auto.tfvars.json` (generated, gitignored) because Moto
 only boots registered images. Outputs (IPs, ids) are mock values.
 
 ## State backend (S3)
@@ -312,7 +314,7 @@ Have ready up front:
 
 - AWS account id, and a user who can create IAM roles, S3 buckets, and
   SSM parameters.
-- This repo, with `environments/prod.tfvars` filled (`allowed_ssh_cidr`
+- This repo, with `infra/environments/prod.tfvars` filled (`allowed_ssh_cidr`
   as your `/32`). Leave `domain_name` empty on the first pass — the EIP
   is not known yet.
 - Four secret values (never in git): a strong opencode password, a

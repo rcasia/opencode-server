@@ -1,6 +1,6 @@
-# terraform
+# terraform (root stack lives in infra/)
 .terraform/
-modules/*/.terraform.lock.hcl
+infra/modules/*/.terraform.lock.hcl
 *.tfstate
 *.tfstate.*
 crash.log
@@ -15,14 +15,14 @@ terraform.rc
 # vars with secrets - never commit (except checked-in env defaults)
 *.tfvars
 !*.example.tfvars
-!environments/*.tfvars
+!infra/environments/*.tfvars
 *.tfvars.json
 
 # backend config names the state bucket - local only, like tfvars
 backend.hcl
 
 # generated moto AMI id (make local-up writes it)
-environments/local.auto.tfvars.json
+infra/environments/local.auto.tfvars.json
 
 # cli
 .aws/

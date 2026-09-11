@@ -63,11 +63,11 @@ jq empty nono-version.json
 MANIFEST_VERSION="$(jq -r .version nono-version.json)"
 MANIFEST_TAR="$(jq -r .artifacts.tar_musl_x86_64.file nono-version.json)"
 MANIFEST_TAR_SHA="$(jq -r .artifacts.tar_musl_x86_64.sha256 nono-version.json)"
-USER_DATA_VERSION="$(grep -m1 '^NONO_VERSION=' ../modules/compute/user_data.sh | cut -d'"' -f2)"
+USER_DATA_VERSION="$(grep -m1 '^NONO_VERSION=' ../infra/modules/compute/user_data.sh | cut -d'"' -f2)"
 [ -n "$USER_DATA_VERSION" ] || { echo "FAIL: user_data sets no NONO_VERSION pin"; exit 1; }
 # user_data builds the tarball name from $NONO_VERSION at boot time;
 # resolve the same expansion here before comparing with the manifest.
-USER_DATA_TAR="$(grep -m1 '^NONO_TAR=' ../modules/compute/user_data.sh | cut -d'"' -f2 | sed "s/\$NONO_VERSION/$USER_DATA_VERSION/")"
+USER_DATA_TAR="$(grep -m1 '^NONO_TAR=' ../infra/modules/compute/user_data.sh | cut -d'"' -f2 | sed "s/\$NONO_VERSION/$USER_DATA_VERSION/")"
 [ -n "$USER_DATA_TAR" ] || { echo "FAIL: user_data sets no NONO_TAR pin"; exit 1; }
 [ "$USER_DATA_VERSION" = "$MANIFEST_VERSION" ] \
   || { echo "FAIL: user_data NONO_VERSION ($USER_DATA_VERSION) != manifest ($MANIFEST_VERSION)"; exit 1; }
@@ -75,7 +75,7 @@ for _field in file sha256; do
   MANIFEST_VAL="$(jq -r ".artifacts.tar_musl_x86_64.$_field" nono-version.json)"
   case "$_field" in
     file) USER_DATA_VAL="$USER_DATA_TAR" ;;
-    sha256) USER_DATA_VAL="$(grep -m1 '^NONO_TAR_SHA256=' ../modules/compute/user_data.sh | cut -d'"' -f2)" ;;
+    sha256) USER_DATA_VAL="$(grep -m1 '^NONO_TAR_SHA256=' ../infra/modules/compute/user_data.sh | cut -d'"' -f2)" ;;
   esac
   [ -n "$USER_DATA_VAL" ] && [ "$USER_DATA_VAL" = "$MANIFEST_VAL" ] \
     || { echo "FAIL: user_data musl tarball $_field ($USER_DATA_VAL) != manifest ($MANIFEST_VAL)"; exit 1; }

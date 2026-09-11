@@ -1,5 +1,10 @@
 .PHONY: help fmt validate pre-commit local-up local-down plan-local apply-local destroy-local test-boot
 
+# All terraform runs happen inside infra/ (-chdir); the root stack
+# (infra/*.tf, infra/modules/*, infra/environments/*) is the only
+# local target — bootstrap/ and prod ship via the pipeline only.
+TF := terraform -chdir=infra
+
 LOCAL_VARS := environments/local.tfvars
 LOCAL_BACKEND := environments/local.backend.hcl
 LOCAL_BUCKET := opencode-local-tfstate
@@ -16,8 +21,8 @@ fmt:
 	terraform fmt -recursive
 
 validate:
-	terraform init -backend=false -input=false
-	terraform validate
+	$(TF) init -backend=false -input=false
+	$(TF) validate
 
 pre-commit:
 	pre-commit run --all-files
@@ -27,24 +32,24 @@ local-up:
 	@echo "Waiting for moto at $(MOTO_ENDPOINT)..."
 	@for i in $$(seq 1 30); do curl -sf $(MOTO_ENDPOINT)/moto-api/ >/dev/null && break || sleep 1; done
 	AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test aws --endpoint-url=$(MOTO_ENDPOINT) --region eu-west-1 s3 mb s3://$(LOCAL_BUCKET) 2>/dev/null || true
-	AMI_ID=$$(AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test aws --endpoint-url=$(MOTO_ENDPOINT) --region eu-west-1 ec2 register-image --name opencode-local-ami --architecture x86_64 --query ImageId --output text) && echo "{\"ami_id\": \"$$AMI_ID\"}" > environments/local.auto.tfvars.json
-	@echo "Local AMI ready: `cat environments/local.auto.tfvars.json`"
+	AMI_ID=$$(AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test aws --endpoint-url=$(MOTO_ENDPOINT) --region eu-west-1 ec2 register-image --name opencode-local-ami --architecture x86_64 --query ImageId --output text) && echo "{\"ami_id\": \"$$AMI_ID\"}" > infra/environments/local.auto.tfvars.json
+	@echo "Local AMI ready: `cat infra/environments/local.auto.tfvars.json`"
 
 local-down:
 	docker compose down
 
 plan-local:
-	terraform init -reconfigure -backend-config=$(LOCAL_BACKEND) -input=false
+	$(TF) init -reconfigure -backend-config=$(LOCAL_BACKEND) -input=false
 	terraform fmt -recursive
-	terraform validate
-	terraform plan -var-file=$(LOCAL_VARS) -input=false
+	$(TF) validate
+	$(TF) plan -var-file=$(LOCAL_VARS) -input=false
 
 apply-local:
-	terraform init -reconfigure -backend-config=$(LOCAL_BACKEND) -input=false
-	terraform apply -var-file=$(LOCAL_VARS)
+	$(TF) init -reconfigure -backend-config=$(LOCAL_BACKEND) -input=false
+	$(TF) apply -var-file=$(LOCAL_VARS)
 
 destroy-local:
-	terraform destroy -var-file=$(LOCAL_VARS)
+	$(TF) destroy -var-file=$(LOCAL_VARS)
 
 test-boot:
 	./scripts/test-boot.sh
