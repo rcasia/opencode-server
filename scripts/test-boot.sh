@@ -122,6 +122,64 @@ docker compose exec -T caddy caddy adapt --config /etc/caddy/Caddyfile --adapter
   | grep -q 'Authorization' || { echo "FAIL: Caddy injects no Authorization header"; exit 1; }
 echo "PASS: Caddy injects Basic auth to the backend after SSO"
 
+echo "==> Asserting sandbox profile (issue #31, ADR-0025)"
+# Probes run through a nested `nono run` with the same profile the
+# backend itself runs under: identical policy, tightened-or-equal
+# Landlock inheritance. Plain `docker compose exec` spawns outside the
+# sandbox and would prove nothing here.
+SANDBOX_NONO="/usr/local/bin/nono"
+SANDBOX_PROFILE="/etc/nono/profile.json"
+sandbox() {
+  docker compose exec -T opencode-blue "$SANDBOX_NONO" run --silent --profile "$SANDBOX_PROFILE" -- "$@"
+}
+why_allow() {
+  OUT="$(sandbox "$SANDBOX_NONO" why --self "$@" --json 2>&1)" \
+    || { echo "FAIL: why query failed: $*"; printf '%s\n' "$OUT"; exit 1; }
+  printf '%s' "$OUT" | grep -q '"status":"allowed"' \
+    || { echo "FAIL: expected sandbox to allow: $*"; printf '%s\n' "$OUT"; exit 1; }
+  echo "PASS: sandbox allows $*"
+}
+why_deny() {
+  OUT="$(sandbox "$SANDBOX_NONO" why --self "$@" --json 2>&1)" \
+    || { echo "FAIL: why query failed: $*"; printf '%s\n' "$OUT"; exit 1; }
+  printf '%s' "$OUT" | grep -q '"status":"denied"' \
+    || { echo "FAIL: expected sandbox to deny: $*"; printf '%s\n' "$OUT"; exit 1; }
+  echo "PASS: sandbox denies $*"
+}
+why_allow --path /root --op write
+why_allow --host https://api.anthropic.com
+why_allow --host https://api.github.com
+why_deny --path /root/.aws --op read
+why_deny --path /var/run/docker.sock --op read
+why_deny --host http://169.254.169.254/
+docker compose exec -T opencode-blue test '!' -e /var/run/docker.sock \
+  || { echo "FAIL: /var/run/docker.sock exists in backend (mount not cut)"; exit 1; }
+echo "PASS: docker.sock mount is cut (socket absent in backend)"
+sandbox sh -c 'command -v wget >/dev/null' \
+  || { echo "FAIL: no http client in backend for the IMDS probe"; exit 1; }
+sandbox sh -c 'wget -q -T 5 -O /dev/null http://169.254.169.254/ 2>/dev/null' \
+  && { echo "FAIL: IMDS reachable from inside sandbox"; exit 1; } \
+  || echo "PASS: IMDS unreachable from inside sandbox"
+sandbox git --version >/dev/null \
+  || { echo "FAIL: git missing in sandboxed backend (issue #35)"; exit 1; }
+sandbox sh -c 'rm -rf /tmp/sandbox-probe && mkdir -p /tmp/sandbox-probe && cd /tmp/sandbox-probe && git init -q && git -c user.name=sandbox -c user.email=sandbox@test commit -q --allow-empty -m probe && test -n "$(git rev-parse HEAD)"' \
+  || { echo "FAIL: git commit does not work inside sandbox"; exit 1; }
+echo "PASS: git works inside sandbox (init + commit)"
+
+echo "==> Probing provider egress with a dummy-credential model call"
+MODEL_OUT="$(sandbox timeout 120 opencode run 'reply with the single word ok' 2>&1 || true)"
+if printf '%s' "$MODEL_OUT" | grep -qiE '401|unauthori[sz]ed|invalid api key|invalid.*key|authentication failed'; then
+  echo "PASS: provider egress allowed (dummy key rejected with auth error, not blocked)"
+elif printf '%s' "$MODEL_OUT" | grep -qiE 'proxy|denied|ECONN|ENOTFOUND|ETIMEDOUT|network|socket hang up|fetch failed'; then
+  echo "FAIL: provider egress blocked from inside sandbox:"
+  printf '%s\n' "$MODEL_OUT"
+  exit 1
+else
+  echo "FAIL: unexpected model-call output (neither auth error nor block):"
+  printf '%s\n' "$MODEL_OUT"
+  exit 1
+fi
+
 echo "==> Validating live Caddyfile"
 docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 echo "==> Asserting restart contract (blue live, green stopped)"
