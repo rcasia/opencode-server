@@ -12,6 +12,14 @@ rule 10).
   checks (`pre-commit`, `terraform`, `local`) → `bootstrap` (deploy
   trust) → `deploy-prod` (plan, apply on changes only, smoke test) →
   `deploy-app` (app-file changes only).
+- **Confirmed full rebuild.** `rebuild-prod` is a manually dispatched,
+  pipeline-only disaster-recovery drill. It requires the exact `DESTROY ALL`
+  confirmation, stores destroy/recreate plans for 30 days, erases the data
+  volume and managed log/bundle buckets, recreates the stack, then gates on
+  clean boot, TLS, SSO, readiness, and a real provider prompt. The state
+  bucket, bootstrap trust, retained DLM snapshots, SSM secrets, and stable EIP
+  remain outside the teardown so state access, credentials, and the public
+  hostname survive.
 - **Real prompt deployment gate.** Host-replacing and app-only deploys create
   an isolated session on the candidate backend before app cutover, then run
   through a machine-authenticated TLS edge path. Both require `prompt_async`

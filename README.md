@@ -308,6 +308,22 @@ and job logs instead.
 
 ## Rebuilding from zero
 
+To rehearse destruction while the state bucket and pipeline trust still exist,
+dispatch `rebuild-prod` with the exact confirmation `DESTROY ALL`:
+
+```bash
+gh workflow run rebuild-prod.yml -f confirmation='DESTROY ALL'
+```
+
+This deletes and recreates the Terraform-managed production stack, including
+the persistent data volume and managed bundle/audit logs. It deliberately
+retains the Elastic IP (so the `nip.io` hostname remains valid), remote state,
+bootstrap OIDC role, external SSM secrets, and DLM snapshots. The workflow
+uploads both plans, restores the app bundle before cloud-init times out, and
+requires boot, TLS, SSO, readiness, and real-prompt checks to pass. If
+recreation fails after destruction, rerun the same workflow: its destroy plan
+removes any partial resources, then creation converges again.
+
 If everything (including state) is destroyed, one AWS admin with
 console access performs the seeds below. Everything else ships via the
 pipeline — there is intentionally no laptop path back.
