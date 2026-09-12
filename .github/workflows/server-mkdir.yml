@@ -48,7 +48,9 @@ jobs:
             --query 'Reservations[0].Instances[0].InstanceId' --output text)"
           case "$IID" in i-*) ;; *) echo "no running server instance found" >&2; exit 1 ;; esac
           echo "target instance: $IID"
-          PARAMS="$(jq -cn --arg d "$DIRNAME" '{commands: ["mkdir -p /root/" + $d + " && ls -ld /root/" + $d]}')"
+          # Host /root (ephemeral) plus the live backend workspace
+          # /root/workspace (persistent volume, listed by "Add projects").
+          PARAMS="$(jq -cn --arg d "$DIRNAME" '{commands: ["mkdir -p /root/" + $d + " && LIVE=$(cat /opt/opencode/.live-color 2>/dev/null || echo blue) && docker compose -f /opt/opencode/compose.yaml exec -T opencode-$LIVE mkdir -p /root/workspace/" + $d + " && ls -ld /root/" + $d + " && docker compose -f /opt/opencode/compose.yaml exec -T opencode-$LIVE ls -ld /root/workspace/" + $d]}')"
           CMD_ID="$(aws ssm send-command --instance-ids "$IID" --document-name AWS-RunShellScript \
             --timeout-seconds 60 --parameters "$PARAMS" --query Command.CommandId --output text)"
           STATUS=Pending
