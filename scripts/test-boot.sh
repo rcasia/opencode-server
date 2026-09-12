@@ -19,8 +19,6 @@ printf 'OAUTH2_PROXY_COOKIE_SECRET=%s\n' "boot-test-cookie-secret-32bytes!" >> o
 printf 'OAUTH2_PROXY_GITHUB_USERS=%s\n'  "boot-test-user"                  >> oauth2.env
 printf 'OAUTH2_PROXY_REDIRECT_URL=%s\n'  "https://localhost/oauth2/callback" >> oauth2.env
 printf 'OPENCODE_%s=%s\n' "SERVER_PASSWORD" "$DUMMY"           > opencode.env
-printf 'ANTHROPIC_API_KEY=%s\n' "boot-test-anthropic-key"      >> opencode.env
-printf 'OPENAI_API_KEY=%s\n'    "boot-test-openai-key"         >> opencode.env
 printf 'OPENCODE_API_KEY=%s\n'  "boot-test-opencode-key"       >> opencode.env
 echo "blue" > .live-color
 SAMPLER_LOG="$(mktemp)"
@@ -53,9 +51,9 @@ echo "==> Validating compose config"
 # verbose rendered config on stdout is discarded.
 docker compose config >/dev/null
 jq empty opencode.json
-grep -q '"apiKey": "{env:ANTHROPIC_API_KEY}"' opencode.json
-grep -q '"apiKey": "{env:OPENAI_API_KEY}"' opencode.json
-echo "PASS: opencode.json is valid JSON and uses env substitution for provider keys"
+grep -q '"model": "opencode/gpt-5.6-sol"' opencode.json
+grep -q '"small_model": "opencode/gpt-5.6-luna"' opencode.json
+echo "PASS: opencode.json is valid JSON and selects models backed by OPENCODE_API_KEY"
 
 echo "==> Validating nono pilot pins (ADR-0025)"
 jq empty nono-profile.json
@@ -182,18 +180,14 @@ echo "==> Asserting per-service env isolation (ADR-0028)"
 echo "==> Asserting backend password and provider keys are wired"
 [ "$(docker compose exec -T opencode-blue printenv OPENCODE_SERVER_PASSWORD)" = "$DUMMY" ] \
   || { echo "FAIL: OPENCODE_SERVER_PASSWORD not set in opencode-blue"; exit 1; }
-[ "$(docker compose exec -T opencode-blue printenv ANTHROPIC_API_KEY)" = "boot-test-anthropic-key" ] \
-  || { echo "FAIL: ANTHROPIC_API_KEY not set in opencode-blue"; exit 1; }
-[ "$(docker compose exec -T opencode-blue printenv OPENAI_API_KEY)" = "boot-test-openai-key" ] \
-  || { echo "FAIL: OPENAI_API_KEY not set in opencode-blue"; exit 1; }
 [ "$(docker compose exec -T opencode-blue printenv OPENCODE_API_KEY)" = "boot-test-opencode-key" ] \
   || { echo "FAIL: OPENCODE_API_KEY not set in opencode-blue"; exit 1; }
 # caddy only sees caddy.env — it must NOT have provider secrets
 if docker compose exec -T caddy printenv OPENCODE_SERVER_PASSWORD 2>/dev/null | grep -q .; then
   echo "FAIL: OPENCODE_SERVER_PASSWORD leaked into caddy (env isolation broken)"; exit 1
 fi
-if docker compose exec -T caddy printenv ANTHROPIC_API_KEY 2>/dev/null | grep -q .; then
-  echo "FAIL: ANTHROPIC_API_KEY leaked into caddy (env isolation broken)"; exit 1
+if docker compose exec -T caddy printenv OPENCODE_API_KEY 2>/dev/null | grep -q .; then
+  echo "FAIL: OPENCODE_API_KEY leaked into caddy (env isolation broken)"; exit 1
 fi
 [ "$(docker compose exec -T caddy printenv DOMAIN)" = "localhost" ] \
   || { echo "FAIL: DOMAIN not set in caddy"; exit 1; }
