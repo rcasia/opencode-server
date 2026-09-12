@@ -43,8 +43,9 @@ resource "aws_cloudwatch_log_group" "boot" {
 # was typed. This customer-owned Session document makes every shell
 # session stream to its own log group (90-day retention). Encryption
 # stays CloudWatch-default SSE like every other group here (no CMK:
-# cheap by design, rule 8); runAs drops sessions to ssm-user (root
-# remains reachable via SendCommand and via sudo from the session).
+# cheap by design, rule 8); runAs drops sessions to ssm-user, which
+# user_data creates at boot with sudo (the pty stream still logs
+# everything, so sudo does not blind the audit).
 resource "aws_cloudwatch_log_group" "ssm_sessions" {
   name              = "${var.name_prefix}-ssm-sessions"
   retention_in_days = 90

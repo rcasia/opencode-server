@@ -37,6 +37,18 @@ mount -a
 systemctl enable --now docker
 usermod -aG docker ec2-user || true
 
+# Session user (issue #54 follow-up): the SSM Session document runs
+# shells as ssm-user, but AL2023 never creates it — Start Session fails
+# with "RunAs user ssm-user does not exist" and locks out the only
+# interactive path. Create it at boot with passwordless sudo; the pty
+# is still fully streamed to CloudWatch, so the audit holds.
+if ! id ssm-user >/dev/null 2>&1; then
+  useradd -m -s /bin/bash ssm-user
+fi
+printf '%s\n' 'ssm-user ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/ssm-user
+chmod 440 /etc/sudoers.d/ssm-user
+visudo -c -q 2>&1 || echo "WARNING: sudoers check failed" >&2
+
 # Bound container log growth (ADR-0019): the json-file driver is unbounded
 # by default and lands on the same data disk the alarms watch. 10m x3 per
 # container, applied before any container starts below. live-restore
