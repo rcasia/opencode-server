@@ -287,6 +287,22 @@ data "aws_iam_policy_document" "deploy_data" {
     resources = ["arn:aws:s3:::${local.audit_bucket_pattern}"]
   }
 
+  # force_destroy needs object/version deletion on generated log buckets.
+  # Only the explicitly confirmed rebuild workflow invokes these actions.
+  statement {
+    sid = "RebuildBucketObjects"
+    actions = [
+      "s3:DeleteObject",
+      "s3:DeleteObjectVersion",
+      "s3:GetObject",
+      "s3:GetObjectVersion",
+    ]
+    resources = [
+      "arn:aws:s3:::${local.bundle_bucket_pattern}/*",
+      "arn:aws:s3:::${local.audit_bucket_pattern}/*",
+    ]
+  }
+
   # Data-disk snapshots (issue #46): DLM policy + its service-linked
   # role. DLM policy ARNs carry generated IDs (unscoped-able by name),
   # so the statement scopes by action set; snapshot content stays
