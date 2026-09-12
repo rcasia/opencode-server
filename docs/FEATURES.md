@@ -12,6 +12,13 @@ rule 10).
   checks (`pre-commit`, `terraform`, `local`) → `bootstrap` (deploy
   trust) → `deploy-prod` (plan, apply on changes only, smoke test) →
   `deploy-app` (app-file changes only).
+- **Real prompt deployment gate.** Host-replacing and app-only deploys create
+  an isolated session on the live backend, require `prompt_async` to return
+  204, and wait up to 90 seconds for a completed provider response. Failures
+  retain bounded, secret-free SSM output as a CI artifact. The same check is
+  manually runnable through `workflow_dispatch`; public TLS, readiness, and
+  SSO redirects remain separate edge checks because GitHub OAuth has no safe
+  unattended browser session. Rationale: issue #65.
 - **Zero-downtime app deploys.** `app/` ships as a per-commit S3 bundle
   (`app/<sha>/`); backend colors (`opencode-blue`/`opencode-green`, one live) switch via
   `switch.sh` over SSM: the idle color starts, must answer authed `GET /`
