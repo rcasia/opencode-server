@@ -18,7 +18,8 @@ rule 10).
   retain bounded, secret-free SSM output as a CI artifact. The same check is
   manually runnable through `workflow_dispatch`; public TLS, readiness, and
   SSO redirects remain separate edge checks because GitHub OAuth has no safe
-  unattended browser session. Rationale: issue #65.
+  unattended browser session. Replacement boot installs the same probe before
+  cloud-init completes. Rationale: issue #65.
 - **Zero-downtime app deploys.** `app/` ships as a per-commit S3 bundle
   (`app/<sha>/`); backend colors (`opencode-blue`/`opencode-green`, one live) switch via
   `switch.sh` over SSM: the idle color starts, must answer authed `GET /`
