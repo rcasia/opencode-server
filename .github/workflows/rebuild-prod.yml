@@ -61,6 +61,17 @@ jobs:
             -backend-config="region=${{ env.AWS_REGION }}" \
             -backend-config="encrypt=true" \
             -backend-config="use_lockfile=true"
+      - name: Arm confirmed bucket deletion in state
+        run: |
+          terraform -chdir=infra plan \
+            -target=aws_s3_bucket.app_bundle \
+            -target=aws_s3_bucket.app_bundle_logs \
+            -target=module.monitoring.aws_s3_bucket.audit \
+            -var-file=environments/prod.tfvars \
+            -var allow_full_destroy=true \
+            -var "deployed_version=$GITHUB_SHA" \
+            -input=false -out=arm-destroy.tfplan
+          terraform -chdir=infra apply -input=false arm-destroy.tfplan
       - name: Plan full destroy
         run: |
           mapfile -t RESOURCES < <(terraform -chdir=infra state list | grep -v '^module.compute.aws_eip.server$')
@@ -77,7 +88,7 @@ jobs:
         run: terraform -chdir=infra apply -input=false destroy.tfplan
       - name: Create bundle bucket first
         run: |
-          terraform -chdir=infra plan -target=aws_s3_bucket.app_bundle -var-file=environments/prod.tfvars -var allow_full_destroy=true -var "deployed_version=$GITHUB_SHA" -input=false -out=bundle.tfplan
+          terraform -chdir=infra plan -target=aws_s3_bucket.app_bundle -var-file=environments/prod.tfvars -var allow_full_destroy=false -var "deployed_version=$GITHUB_SHA" -input=false -out=bundle.tfplan
           terraform -chdir=infra apply -input=false bundle.tfplan
       - name: Upload app bundle before creating host
         run: |
@@ -95,7 +106,7 @@ jobs:
           echo "$NONO_SHA  /tmp/$NONO_TAR" | sha256sum -c -
           aws s3 cp "/tmp/$NONO_TAR" "s3://$BUCKET/app/${GITHUB_SHA}/$NONO_TAR" --sse AES256 --region "$AWS_REGION"
       - name: Plan clean recreation
-        run: terraform -chdir=infra plan -var-file=environments/prod.tfvars -var allow_full_destroy=true -var "deployed_version=$GITHUB_SHA" -input=false -out=recreate.tfplan
+        run: terraform -chdir=infra plan -var-file=environments/prod.tfvars -var allow_full_destroy=false -var "deployed_version=$GITHUB_SHA" -input=false -out=recreate.tfplan
       - name: Upload recreate plan
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
