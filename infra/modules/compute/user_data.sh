@@ -94,7 +94,7 @@ dnf install -y docker-compose-plugin || {
 docker compose version
 
 mkdir -p /opt/opencode/logs /opt/opencode/host
-rm -rf /opt/opencode/compose.yaml /opt/opencode/Caddyfile /opt/opencode/switch.sh /opt/opencode/opencode.json /opt/opencode/nono-profile.json /opt/opencode/nono-version.json /opt/opencode/nono-*.tar.gz /opt/opencode/nono-container /opt/opencode/nono /opt/opencode/host/app.sh /opt/opencode/host/monitoring.sh
+rm -rf /opt/opencode/compose.yaml /opt/opencode/Caddyfile /opt/opencode/switch.sh /opt/opencode/opencode.json /opt/opencode/nono-profile.json /opt/opencode/nono-version.json /opt/opencode/nono-*.tar.gz /opt/opencode/nono-container /opt/opencode/nono /opt/opencode/host/app.sh /opt/opencode/host/monitoring.sh /opt/opencode/host/prompt-smoke.sh
 # Pinned nono release (ADR-0025, ADR-0027): the static musl tarball
 # rides the S3 bundle, so boot never curls GitHub (ADR-0003). One
 # binary serves host and container: static-pie runs on AL2023 glibc
@@ -123,6 +123,7 @@ for _ in $(seq 1 60); do
     && aws s3 cp "s3://${app_bundle_bucket}/app/${deployed_version}/$NONO_TAR" "/opt/opencode/$NONO_TAR" --region "${aws_region}" \
     && aws s3 cp "s3://${app_bundle_bucket}/app/${deployed_version}/host/app.sh" /opt/opencode/host/app.sh --region "${aws_region}" \
     && aws s3 cp "s3://${app_bundle_bucket}/app/${deployed_version}/host/monitoring.sh" /opt/opencode/host/monitoring.sh --region "${aws_region}" \
+    && aws s3 cp "s3://${app_bundle_bucket}/app/${deployed_version}/host/prompt-smoke.sh" /opt/opencode/host/prompt-smoke.sh --region "${aws_region}" \
     && break
   sleep 5
 done
@@ -131,9 +132,10 @@ test -f /opt/opencode/switch.sh || { echo "app bundle never appeared"; exit 1; }
 test -f /opt/opencode/opencode.json || { echo "opencode config never appeared"; exit 1; }
 test -f /opt/opencode/host/app.sh || { echo "host stages never appeared"; exit 1; }
 test -f /opt/opencode/host/monitoring.sh || { echo "host stages never appeared"; exit 1; }
+test -f /opt/opencode/host/prompt-smoke.sh || { echo "prompt smoke stage never appeared"; exit 1; }
 test -f /opt/opencode/nono-profile.json || { echo "nono profile never appeared"; exit 1; }
 test -f "/opt/opencode/$NONO_TAR" || { echo "nono musl tarball never appeared"; exit 1; }
-chmod +x /opt/opencode/switch.sh /opt/opencode/host/app.sh /opt/opencode/host/monitoring.sh
+chmod +x /opt/opencode/switch.sh /opt/opencode/host/app.sh /opt/opencode/host/monitoring.sh /opt/opencode/host/prompt-smoke.sh
 ACTUAL_NONO_TAR_SHA256=$(sha256sum "/opt/opencode/$NONO_TAR" | cut -d ' ' -f 1)
 [ "$ACTUAL_NONO_TAR_SHA256" = "$NONO_TAR_SHA256" ] || { echo "nono musl tarball checksum mismatch"; exit 1; }
 tar -xzf "/opt/opencode/$NONO_TAR" -C /opt/opencode
