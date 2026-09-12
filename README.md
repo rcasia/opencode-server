@@ -319,8 +319,9 @@ This deletes and recreates the Terraform-managed production stack, including
 the persistent data volume and managed bundle/audit logs. It deliberately
 retains the Elastic IP (so the `nip.io` hostname remains valid), remote state,
 bootstrap OIDC role, external SSM secrets, and DLM snapshots. The workflow
-uploads both plans, restores the app bundle before cloud-init times out, and
-requires boot, TLS, SSO, readiness, and real-prompt checks to pass. If
+requires green CI, uploads both plans, recreates and fills the bundle bucket
+before creating the host, and gates on boot, TLS, SSO, readiness, and a real
+prompt. If
 recreation fails after destruction, rerun the same workflow: its destroy plan
 removes any partial resources, then creation converges again.
 
