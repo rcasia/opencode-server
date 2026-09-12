@@ -396,6 +396,12 @@ cmd_deploy() {
     restore_backups
     fail "idle color unhealthy, live=$LIVE still serving"
   fi
+  if [ "${PROMPT_SMOKE:-false}" = true ] && ! "$COMPOSE_DIR/host/prompt-smoke.sh" "$IDLE"; then
+    log "opencode-$IDLE failed real prompt smoke, backing out"
+    docker compose stop "opencode-$IDLE" || true
+    restore_backups
+    fail "idle color cannot complete a provider turn, live=$LIVE still serving"
+  fi
   trap - INT TERM
 
   if caddy_running && ! cmp -s Caddyfile Caddyfile.bak; then

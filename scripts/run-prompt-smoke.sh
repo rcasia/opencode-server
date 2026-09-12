@@ -7,15 +7,19 @@ DEPLOYED_REF="${2:-unknown}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-smoke-artifacts}"
 mkdir -p "$ARTIFACT_DIR"
 LOG="$ARTIFACT_DIR/prompt-smoke.log"
+: >"$LOG"
 
-PARAMETERS="$(jq -cn --arg command "cd /opt/opencode && host/prompt-smoke.sh \"\$(cat .live-color)\" '$DEPLOYED_REF'" '{commands: [$command]}')"
-COMMAND_ID="$(aws ssm send-command \
+PARAMETERS="$(jq -cn --arg command "cd /opt/opencode && host/prompt-smoke.sh edge '$DEPLOYED_REF'" '{commands: [$command]}')"
+if ! COMMAND_ID="$(aws ssm send-command \
   --instance-ids "$INSTANCE_ID" \
   --document-name AWS-RunShellScript \
   --timeout-seconds 120 \
   --parameters "$PARAMETERS" \
   --query Command.CommandId \
-  --output text)"
+  --output text 2>"$ARTIFACT_DIR/send-command-error.log")"; then
+  { echo "send-command failed for $INSTANCE_ID"; cat "$ARTIFACT_DIR/send-command-error.log"; } | tee "$LOG" >&2
+  exit 1
+fi
 echo "SSM prompt smoke CommandId: $COMMAND_ID on $INSTANCE_ID"
 
 STATUS=Pending

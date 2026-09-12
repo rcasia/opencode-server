@@ -99,6 +99,32 @@
 			}
 		}
 	}
+	# Machine-authenticated acceptance path (issue #65). It traverses public
+	# TLS, Caddy routing, and the live backend without storing a renewable
+	# GitHub browser session in CI. Requests without the machine credential
+	# fall through to the normal SSO gate.
+	@prompt_smoke {
+		path /_prompt-smoke/*
+		header Authorization "Basic {$BASIC_AUTH}"
+	}
+	handle @prompt_smoke {
+		uri strip_prefix /_prompt-smoke
+		reverse_proxy opencode-blue:4096 opencode-green:4096 {
+			header_up Authorization "Basic {$BASIC_AUTH}"
+			lb_policy first
+			lb_try_duration 10s
+			lb_retries 3
+			fail_duration 30s
+			health_uri /
+			health_interval 5s
+			health_timeout 3s
+			health_status 2xx
+			health_follow_redirects
+			health_headers {
+				Authorization "Basic {$BASIC_AUTH}"
+			}
+		}
+	}
 	# oauth2-proxy's own endpoints (login, callback, sign_in) proxy
 	# straight through without an auth check — they ARE the login flow.
 	# X-Forwarded-Uri is required for correct redirects behind Caddy.

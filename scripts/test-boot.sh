@@ -163,6 +163,16 @@ READY_BODY="$(curl -sk --max-time 10 https://localhost/ready || true)"
 [ "$READY_BODY" = "ready" ] || { echo "FAIL: /ready body is '$READY_BODY', want 'ready'"; exit 1; }
 echo "PASS: public /ready answers 'ready' (a backend color answers behind the edge)"
 
+SMOKE_DENY="$(curl -sk -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 10 https://localhost/_prompt-smoke/session || true)"
+case "$SMOKE_DENY" in
+  302*oauth2*) echo "PASS: prompt smoke path rejects requests without machine auth" ;;
+  *) echo "FAIL: unauthenticated prompt smoke path bypassed SSO ($SMOKE_DENY)"; exit 1 ;;
+esac
+SMOKE_SESSION="$(curl -sk --max-time 10 -X POST -H "Authorization: Basic $BASIC_DUMMY" -H 'Content-Type: application/json' -d '{"title":"edge-route-probe"}' https://localhost/_prompt-smoke/session | jq -r '.id // empty')"
+[ -n "$SMOKE_SESSION" ] || { echo "FAIL: machine-authenticated TLS prompt smoke route could not create a session"; exit 1; }
+curl -sk --max-time 10 -X DELETE -H "Authorization: Basic $BASIC_DUMMY" "https://localhost/_prompt-smoke/session/$SMOKE_SESSION" >/dev/null
+echo "PASS: machine-authenticated prompt smoke path traverses TLS and backend routing"
+
 echo "==> Probing backend API route (GET /command, the web UI calls it per directory)"
 CMD_RESP="$(docker compose exec -T caddy sh -c 'curl -s --max-time 10 -o /dev/null -w "%{http_code}" -H "Authorization: Basic $BASIC_AUTH" "http://opencode-blue:4096/command?directory=/root/workspace"' || true)"
 [ "$CMD_RESP" = "200" ] || { echo "FAIL: backend /command returned '$CMD_RESP', want 200"; exit 1; }
