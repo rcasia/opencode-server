@@ -288,7 +288,8 @@ data "aws_iam_policy_document" "deploy_data" {
   }
 
   # force_destroy needs object/version deletion on generated log buckets.
-  # Only the explicitly confirmed rebuild workflow invokes these actions.
+  # The deploy role already manages its own policies; the exact-confirmation
+  # workflow is the procedural guard on this destructive path.
   statement {
     sid = "RebuildBucketObjects"
     actions = [
