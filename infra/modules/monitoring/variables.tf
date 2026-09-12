@@ -48,3 +48,9 @@ variable "monthly_budget_limit_usd" {
     error_message = "monthly_budget_limit_usd must be a positive number, e.g. \"25\"."
   }
 }
+
+variable "allow_full_destroy" {
+  description = "Allow a confirmed full rebuild to empty the audit bucket"
+  type        = bool
+  default     = false
+}

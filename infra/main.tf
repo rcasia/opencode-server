@@ -46,4 +46,5 @@ module "monitoring" {
   domain_name              = var.domain_name
   instance_id              = module.compute.instance_id
   monthly_budget_limit_usd = var.monthly_budget_limit_usd
+  allow_full_destroy       = var.allow_full_destroy
 }

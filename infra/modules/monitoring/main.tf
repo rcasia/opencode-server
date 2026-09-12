@@ -345,7 +345,8 @@ resource "aws_cloudwatch_metric_alarm" "mem_high" {
 data "aws_caller_identity" "current" {}
 
 resource "aws_s3_bucket" "audit" {
-  bucket = "${var.name_prefix}-audit-${data.aws_caller_identity.current.account_id}"
+  bucket        = "${var.name_prefix}-audit-${data.aws_caller_identity.current.account_id}"
+  force_destroy = var.allow_full_destroy
 
   tags = { Name = "${var.name_prefix}-audit" }
 }

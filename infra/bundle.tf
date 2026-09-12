@@ -11,7 +11,7 @@ data "aws_caller_identity" "current" {}
 
 resource "aws_s3_bucket" "app_bundle" {
   bucket        = "${local.name_prefix}-app-bundle-${data.aws_caller_identity.current.account_id}"
-  force_destroy = true
+  force_destroy = var.allow_full_destroy
 
   lifecycle {
     ignore_changes = [tags_all]
@@ -45,7 +45,8 @@ resource "aws_s3_bucket_public_access_block" "app_bundle" {
 }
 
 resource "aws_s3_bucket" "app_bundle_logs" {
-  bucket = "${local.name_prefix}-app-bundle-logs-${data.aws_caller_identity.current.account_id}"
+  bucket        = "${local.name_prefix}-app-bundle-logs-${data.aws_caller_identity.current.account_id}"
+  force_destroy = var.allow_full_destroy
 
   tags = { Name = "${local.name_prefix}-app-bundle-logs" }
 

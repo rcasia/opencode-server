@@ -149,6 +149,12 @@ variable "deployed_version" {
   default     = "unreleased"
 }
 
+variable "allow_full_destroy" {
+  description = "Allow confirmed pipeline rebuilds to empty and delete stateful S3 buckets"
+  type        = bool
+  default     = false
+}
+
 variable "git_user_name" {
   description = "git identity for commits made on the server"
   type        = string
