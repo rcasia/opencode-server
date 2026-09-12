@@ -6,6 +6,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -321,6 +322,7 @@ jobs:
           aws s3 cp app/nono-version.json "s3://$BUCKET/app/${GITHUB_SHA}/nono-version.json" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/host/app.sh "s3://$BUCKET/app/${GITHUB_SHA}/host/app.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/host/monitoring.sh "s3://$BUCKET/app/${GITHUB_SHA}/host/monitoring.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/host/prompt-smoke.sh "s3://$BUCKET/app/${GITHUB_SHA}/host/prompt-smoke.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
           # Pinned nono musl tarball (static-pie: host and
           # container binary source). SHA-verified; boot installs
           # from disk, never curl-at-boot (ADR-0003, ADR-0027).
@@ -413,6 +415,7 @@ jobs:
           aws s3 cp app/nono-version.json "s3://$BUCKET/app/${GITHUB_SHA}/nono-version.json" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/host/app.sh "s3://$BUCKET/app/${GITHUB_SHA}/host/app.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/host/monitoring.sh "s3://$BUCKET/app/${GITHUB_SHA}/host/monitoring.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/host/prompt-smoke.sh "s3://$BUCKET/app/${GITHUB_SHA}/host/prompt-smoke.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
           # Pinned nono musl tarball (static-pie: host and
           # container binary source). SHA-verified; boot installs
           # from disk, never curl-at-boot (ADR-0003, ADR-0027).
@@ -499,6 +502,16 @@ jobs:
             sleep 20
           done
           echo "edge up but /ready never answered 'ready' (last: $READY)"; exit 1
+      - name: Real prompt smoke test
+        if: steps.plan.outputs.exitcode == '2' && steps.replaced.outputs.replaced == 'true'
+        run: scripts/run-prompt-smoke.sh "$(terraform -chdir=infra output -raw instance_id)" "$GITHUB_SHA"
+      - name: Upload prompt smoke evidence
+        if: always() && steps.plan.outputs.exitcode == '2' && steps.replaced.outputs.replaced == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: deploy-prod-prompt-smoke-${{ github.run_attempt }}
+          path: smoke-artifacts/prompt-smoke.log
+          retention-days: 7
       - name: Boot warnings audit (fresh boot only, informational)
         if: steps.plan.outputs.exitcode == '2' && steps.replaced.outputs.replaced == 'true'
         run: |
@@ -582,6 +595,7 @@ jobs:
           aws s3 cp app/nono-version.json "s3://$BUCKET/app/${GITHUB_SHA}/nono-version.json" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/host/app.sh "s3://$BUCKET/app/${GITHUB_SHA}/host/app.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
           aws s3 cp app/host/monitoring.sh "s3://$BUCKET/app/${GITHUB_SHA}/host/monitoring.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
+          aws s3 cp app/host/prompt-smoke.sh "s3://$BUCKET/app/${GITHUB_SHA}/host/prompt-smoke.sh" --sse AES256 --region "${{ env.AWS_REGION }}"
       - name: Blue-green switch via SSM
         run: |
           IID="$(terraform -chdir=infra output -raw instance_id)"
@@ -590,7 +604,7 @@ jobs:
           # runs longer than 12 min (image pull + switch should be <5 min).
           # CI polls 150x5s=750s to outlast the SSM timeout and see the final
           # status (TimedOut) rather than exit with an ambiguous Pending.
-          CMD_ID="$(aws ssm send-command --instance-ids "$IID" --document-name "AWS-RunShellScript" --timeout-seconds 720 --parameters "commands=[\"cd /opt/opencode && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/compose.yaml compose.yaml --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/Caddyfile Caddyfile --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/switch.sh switch.sh --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/opencode.json opencode.json --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/nono-profile.json nono-profile.json --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/nono-version.json nono-version.json --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/host/app.sh host/app.sh --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/host/monitoring.sh host/monitoring.sh --region ${{ env.AWS_REGION }} && chmod +x switch.sh host/app.sh host/monitoring.sh && host/app.sh secrets && host/monitoring.sh && ./switch.sh deploy && (host/app.sh git-setup || echo 'WARNING: git setup failed (non-blocking)')\"]" --query "Command.CommandId" --output text)"
+          CMD_ID="$(aws ssm send-command --instance-ids "$IID" --document-name "AWS-RunShellScript" --timeout-seconds 720 --parameters "commands=[\"cd /opt/opencode && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/compose.yaml compose.yaml --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/Caddyfile Caddyfile --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/switch.sh switch.sh --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/opencode.json opencode.json --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/nono-profile.json nono-profile.json --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/nono-version.json nono-version.json --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/host/app.sh host/app.sh --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/host/monitoring.sh host/monitoring.sh --region ${{ env.AWS_REGION }} && aws s3 cp s3://$BUCKET/app/${GITHUB_SHA}/host/prompt-smoke.sh host/prompt-smoke.sh --region ${{ env.AWS_REGION }} && chmod +x switch.sh host/app.sh host/monitoring.sh host/prompt-smoke.sh && host/app.sh secrets && host/monitoring.sh && ./switch.sh deploy && (host/app.sh git-setup || echo 'WARNING: git setup failed (non-blocking)')\"]" --query "Command.CommandId" --output text)"
           # Record the CommandId (issue #48): a timed-out poll must be
           # inspected (get-command-invocation), never answered with a
           # blind rerun — switch.sh now mutexes concurrent deploys.
@@ -619,3 +633,55 @@ jobs:
             sleep 20
           done
           echo "site never returned the SSO gate (last: $RESP)"; exit 1
+      - name: Real prompt smoke test
+        run: scripts/run-prompt-smoke.sh "$(terraform -chdir=infra output -raw instance_id)" "$GITHUB_SHA"
+      - name: Upload prompt smoke evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: deploy-app-prompt-smoke-${{ github.run_attempt }}
+          path: smoke-artifacts/prompt-smoke.log
+          retention-days: 7
+
+  prompt-smoke:
+    timeout-minutes: 10
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: prod
+    concurrency:
+      group: prod-deploy
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: eu-west-1
+      TF_STATE_KEY: opencode-server/prod/terraform.tfstate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "1.13.3"
+          terraform_wrapper: false
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Terraform init (S3 backend, for instance ID)
+        run: |
+          terraform -chdir=infra init -input=false \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ env.TF_STATE_KEY }}" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+      - name: Real prompt smoke test
+        run: scripts/run-prompt-smoke.sh "$(terraform -chdir=infra output -raw instance_id)" "$GITHUB_SHA"
+      - name: Upload prompt smoke evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: manual-prompt-smoke-${{ github.run_attempt }}
+          path: smoke-artifacts/prompt-smoke.log
+          retention-days: 7
