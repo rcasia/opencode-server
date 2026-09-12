@@ -69,7 +69,7 @@ SESSION_ID="$(printf '%s' "$CREATE_BODY" | jq -r '.id // empty')"
 [ -n "$SESSION_ID" ] || { echo "session create returned no ID" >&2; false; }
 echo "prompt smoke session: $SESSION_ID"
 
-PROMPT='{"agent":"build","model":{"providerID":"opencode","modelID":"gpt-5.6-sol"},"parts":[{"type":"text","text":"Reply with exactly OK. Do not use tools."}]}'
+PROMPT='{"agent":"build","model":{"providerID":"opencode","modelID":"muse-spark-1.3-contributor-free"},"parts":[{"type":"text","text":"Reply with exactly OK. Do not use tools."}]}'
 PROMPT_RESULT="$(backend_request POST "/session/$SESSION_ID/prompt_async" "$PROMPT" 10)"
 PROMPT_CODE="${PROMPT_RESULT##*$'\n'}"
 [ "$PROMPT_CODE" = "204" ] || { echo "prompt_async returned HTTP $PROMPT_CODE" >&2; false; }
