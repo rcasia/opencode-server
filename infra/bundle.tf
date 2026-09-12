@@ -5,7 +5,8 @@
 # state can never point at different commits. deploy-app re-uploads the
 # push SHA on app/** changes and switches colors via SSM. Rollback =
 # revert commit + push (a new SHA carrying old content). Contents are
-# reproducible from git, so force_destroy is safe.
+# reproducible from git; only the confirmed rebuild workflow enables
+# force_destroy.
 
 data "aws_caller_identity" "current" {}
 
