@@ -74,10 +74,13 @@ jobs:
           terraform -chdir=infra apply -input=false arm-destroy.tfplan
       - name: Plan full destroy
         run: |
-          mapfile -t RESOURCES < <(terraform -chdir=infra state list | grep -v '^module.compute.aws_eip.server$')
+          mapfile -t RESOURCES < <(terraform -chdir=infra state list | grep -v -e '^module.compute.aws_eip.server$' -e '^module.compute.aws_eip_association.server$')
           TARGETS=()
           for RESOURCE in "${RESOURCES[@]}"; do TARGETS+=("-target=$RESOURCE"); done
           terraform -chdir=infra plan -destroy "${TARGETS[@]}" -var-file=environments/prod.tfvars -var allow_full_destroy=true -var "deployed_version=$GITHUB_SHA" -input=false -out=destroy.tfplan
+          if terraform -chdir=infra show -json destroy.tfplan | jq -e '.resource_changes[] | select(.address == "module.compute.aws_eip.server" and (.change.actions | index("delete")))' >/dev/null; then
+            echo "::error::destroy plan deletes the retained EIP; refusing to release the stable address"; exit 1
+          fi
       - name: Upload destroy plan
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
