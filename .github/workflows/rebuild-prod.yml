@@ -22,6 +22,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
+      actions: read
     env:
       AWS_REGION: eu-west-1
       TF_STATE_KEY: opencode-server/prod/terraform.tfstate
@@ -37,6 +38,12 @@ jobs:
           CONFIRMATION: ${{ inputs.confirmation }}
         run: test "$CONFIRMATION" = "DESTROY ALL"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Require green main pipeline for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CONCLUSION="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&status=completed&per_page=1" --jq '.workflow_runs[0].conclusion // ""')"
+          [ "$CONCLUSION" = success ] || { echo "ci.yml is not green for $GITHUB_SHA (conclusion='$CONCLUSION')"; exit 1; }
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: "1.13.3"
@@ -68,17 +75,11 @@ jobs:
           retention-days: 30
       - name: Destroy full deployment
         run: terraform -chdir=infra apply -input=false destroy.tfplan
-      - name: Plan clean recreation
-        run: terraform -chdir=infra plan -var-file=environments/prod.tfvars -var allow_full_destroy=true -var "deployed_version=$GITHUB_SHA" -input=false -out=recreate.tfplan
-      - name: Upload recreate plan
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: recreate-plan-${{ github.run_attempt }}
-          path: infra/recreate.tfplan
-          retention-days: 30
-      - name: Recreate full deployment
-        run: terraform -chdir=infra apply -input=false recreate.tfplan
-      - name: Upload app bundle before cloud-init timeout
+      - name: Create bundle bucket first
+        run: |
+          terraform -chdir=infra plan -target=aws_s3_bucket.app_bundle -var-file=environments/prod.tfvars -var allow_full_destroy=true -var "deployed_version=$GITHUB_SHA" -input=false -out=bundle.tfplan
+          terraform -chdir=infra apply -input=false bundle.tfplan
+      - name: Upload app bundle before creating host
         run: |
           BUCKET="$(terraform -chdir=infra output -raw app_bundle_bucket)"
           for FILE in compose.yaml Caddyfile switch.sh opencode.json nono-profile.json nono-version.json; do
@@ -93,6 +94,16 @@ jobs:
           curl -fsSL "https://github.com/nolabs-ai/nono/releases/download/v${NONO_VERSION}/${NONO_TAR}" -o "/tmp/$NONO_TAR"
           echo "$NONO_SHA  /tmp/$NONO_TAR" | sha256sum -c -
           aws s3 cp "/tmp/$NONO_TAR" "s3://$BUCKET/app/${GITHUB_SHA}/$NONO_TAR" --sse AES256 --region "$AWS_REGION"
+      - name: Plan clean recreation
+        run: terraform -chdir=infra plan -var-file=environments/prod.tfvars -var allow_full_destroy=true -var "deployed_version=$GITHUB_SHA" -input=false -out=recreate.tfplan
+      - name: Upload recreate plan
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: recreate-plan-${{ github.run_attempt }}
+          path: infra/recreate.tfplan
+          retention-days: 30
+      - name: Recreate full deployment
+        run: terraform -chdir=infra apply -input=false recreate.tfplan
       - name: Wait for clean boot
         run: |
           IID="$(terraform -chdir=infra output -raw instance_id)"
