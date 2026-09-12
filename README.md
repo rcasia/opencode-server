@@ -321,7 +321,8 @@ retains the Elastic IP (so the `nip.io` hostname remains valid), remote state,
 bootstrap OIDC role, external SSM secrets, and DLM snapshots. The workflow
 requires green CI, uploads both plans, recreates and fills the bundle bucket
 before creating the host, and gates on boot, TLS, SSO, readiness, and a real
-prompt. If
+prompt. Bucket deletion is armed only inside the confirmed run and recreated
+buckets return to deletion-disabled state. If
 recreation fails after destruction, rerun the same workflow: its destroy plan
 removes any partial resources, then creation converges again.
 
