@@ -13,12 +13,13 @@ rule 10).
   trust) → `deploy-prod` (plan, apply on changes only, smoke test) →
   `deploy-app` (app-file changes only).
 - **Real prompt deployment gate.** Host-replacing and app-only deploys create
-  an isolated session on the live backend, require `prompt_async` to return
-  204, and wait up to 90 seconds for a completed provider response. Failures
+  an isolated session on the candidate backend before app cutover, then run
+  through a machine-authenticated TLS edge path. Both require `prompt_async`
+  to return 204 and wait up to 90 seconds for an exact provider response. Failures
   retain bounded, secret-free SSM output as a CI artifact. The same check is
-  manually runnable through `workflow_dispatch`; public TLS, readiness, and
-  SSO redirects remain separate edge checks because GitHub OAuth has no safe
-  unattended browser session. Replacement boot installs the same probe before
+  manually runnable through `workflow_dispatch`; human SSO redirects remain a
+  separate edge check because GitHub OAuth has no safe unattended browser
+  session. Replacement boot installs the same probe before
   cloud-init completes. Rationale: issue #65.
 - **Zero-downtime app deploys.** `app/` ships as a per-commit S3 bundle
   (`app/<sha>/`); backend colors (`opencode-blue`/`opencode-green`, one live) switch via
