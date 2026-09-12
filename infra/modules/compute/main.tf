@@ -215,11 +215,23 @@ resource "aws_instance" "server" {
   }
 }
 
+# Standalone EIP with a separate association: the address must survive
+# instance replacement AND targeted full-rebuild destroys. An inline
+# `instance` argument would make the EIP depend on the instance, so a
+# targeted destroy of the instance pulls the EIP in with it (proven
+# 2026-09-12: the first rebuild-prod run released 54.170.161.9 despite
+# excluding the EIP from -target). The association resource carries the
+# dependency instead, so excluding both from a destroy still leaves the
+# address allocated.
 resource "aws_eip" "server" {
-  instance = aws_instance.server.id
-  domain   = "vpc"
+  domain = "vpc"
 
   tags = { Name = "${var.name_prefix}-eip" }
+}
+
+resource "aws_eip_association" "server" {
+  instance_id   = aws_instance.server.id
+  allocation_id = aws_eip.server.id
 }
 
 # Persistent data disk (ADR-0008): mounted at /var/lib/docker so containers,
