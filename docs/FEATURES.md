@@ -43,7 +43,9 @@ rule 10).
   configuration; provider API keys are referenced only through
   `{env:VAR}` substitutions and never committed. Precedence: the managed
   file is the global default and a project-level `opencode.json` in the
-  workspace overrides it per key (ADR-0025).
+  workspace overrides it per key (ADR-0025). Production defaults to
+  `opencode/gpt-5.6-sol` with `opencode/gpt-5.6-luna` as its small model,
+  matching the configured `OPENCODE_API_KEY` credential.
  - **App-only pushes ship via `deploy-app`.** When infra is unchanged,
    the bundle uploads and `switch.sh deploy` runs over SSM — including
    from a cold edge.
