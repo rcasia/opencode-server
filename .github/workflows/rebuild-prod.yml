@@ -49,7 +49,7 @@ jobs:
           terraform_version: "1.13.3"
           terraform_wrapper: false
       - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -82,7 +82,7 @@ jobs:
             echo "::error::destroy plan deletes the retained EIP; refusing to release the stable address"; exit 1
           fi
       - name: Upload destroy plan
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: destroy-plan-${{ github.run_attempt }}
           path: infra/destroy.tfplan
@@ -111,7 +111,7 @@ jobs:
       - name: Plan clean recreation
         run: terraform -chdir=infra plan -var-file=environments/prod.tfvars -var allow_full_destroy=false -var "deployed_version=$GITHUB_SHA" -input=false -out=recreate.tfplan
       - name: Upload recreate plan
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: recreate-plan-${{ github.run_attempt }}
           path: infra/recreate.tfplan
@@ -167,7 +167,7 @@ jobs:
         run: scripts/run-prompt-smoke.sh "$(terraform -chdir=infra output -raw instance_id)" "$GITHUB_SHA"
       - name: Upload prompt evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: rebuild-prompt-smoke-${{ github.run_attempt }}
           path: smoke-artifacts/prompt-smoke.log
